@@ -8,16 +8,22 @@
 #include "CrossPointSettings.h"
 #include "KOReaderAuthActivity.h"
 #include "KOReaderCredentialStore.h"
+#include "KOReaderProfileListActivity.h"
 #include "MappedInputManager.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
-constexpr int MENU_ITEMS = 7;
-const StrId menuNames[MENU_ITEMS] = {StrId::STR_USERNAME, StrId::STR_PASSWORD, StrId::STR_SYNC_SERVER_URL,
-                                     StrId::STR_DOCUMENT_MATCHING, StrId::STR_KO_AUTO_PULL_ON_OPEN,
-                                     StrId::STR_KO_AUTO_PUSH_ON_CLOSE, StrId::STR_AUTHENTICATE};
+constexpr int MENU_ITEMS = 8;
+const StrId menuNames[MENU_ITEMS] = {StrId::STR_KOREADER_PROFILES,
+                                     StrId::STR_USERNAME,
+                                     StrId::STR_PASSWORD,
+                                     StrId::STR_SYNC_SERVER_URL,
+                                     StrId::STR_DOCUMENT_MATCHING,
+                                     StrId::STR_KO_AUTO_PULL_ON_OPEN,
+                                     StrId::STR_KO_AUTO_PUSH_ON_CLOSE,
+                                     StrId::STR_AUTHENTICATE};
 }  // namespace
 
 void KOReaderSettingsActivity::onEnter() {
@@ -54,7 +60,11 @@ void KOReaderSettingsActivity::loop() {
 
 void KOReaderSettingsActivity::handleSelection() {
   if (selectedIndex == 0) {
-    // Username
+    // KOReader Profiles - manage saved profiles and pick which one is active
+    startActivityForResult(std::make_unique<KOReaderProfileListActivity>(renderer, mappedInput),
+                           [this](const ActivityResult&) { requestUpdate(); });
+  } else if (selectedIndex == 1) {
+    // Username (active profile)
     startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_KOREADER_USERNAME),
                                                                    KOREADER_STORE.getUsername(), 64, InputType::Text),
                            [this](const ActivityResult& result) {
@@ -64,8 +74,8 @@ void KOReaderSettingsActivity::handleSelection() {
                                KOREADER_STORE.saveToFile();
                              }
                            });
-  } else if (selectedIndex == 1) {
-    // Password
+  } else if (selectedIndex == 2) {
+    // Password (active profile)
     startActivityForResult(
         std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_KOREADER_PASSWORD),
                                                 KOREADER_STORE.getPassword(), 64, InputType::Password),
@@ -76,8 +86,8 @@ void KOReaderSettingsActivity::handleSelection() {
             KOREADER_STORE.saveToFile();
           }
         });
-  } else if (selectedIndex == 2) {
-    // Sync Server URL - prefill with https:// if empty to save typing
+  } else if (selectedIndex == 3) {
+    // Sync Server URL (active profile) - prefill with https:// if empty to save typing
     const std::string currentUrl = KOREADER_STORE.getServerUrl();
     const std::string prefillUrl = currentUrl.empty() ? "https://" : currentUrl;
     startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SYNC_SERVER_URL),
@@ -91,24 +101,24 @@ void KOReaderSettingsActivity::handleSelection() {
                                KOREADER_STORE.saveToFile();
                              }
                            });
-  } else if (selectedIndex == 3) {
-    // Document Matching - toggle between Filename and Binary
+  } else if (selectedIndex == 4) {
+    // Document Matching (active profile) - toggle between Filename and Binary
     const auto current = KOREADER_STORE.getMatchMethod();
     const auto newMethod =
         (current == DocumentMatchMethod::FILENAME) ? DocumentMatchMethod::BINARY : DocumentMatchMethod::FILENAME;
     KOREADER_STORE.setMatchMethod(newMethod);
     KOREADER_STORE.saveToFile();
     requestUpdate();
-  } else if (selectedIndex == 4) {
+  } else if (selectedIndex == 5) {
     SETTINGS.koSyncAutoPullOnOpen = SETTINGS.koSyncAutoPullOnOpen ? 0 : 1;
     SETTINGS.saveToFile();
     requestUpdate();
-  } else if (selectedIndex == 5) {
+  } else if (selectedIndex == 6) {
     SETTINGS.koSyncAutoPushOnClose = SETTINGS.koSyncAutoPushOnClose ? 0 : 1;
     SETTINGS.saveToFile();
     requestUpdate();
-  } else if (selectedIndex == 6) {
-    // Authenticate
+  } else if (selectedIndex == 7) {
+    // Authenticate (active profile)
     if (!KOREADER_STORE.hasCredentials()) {
       // Can't authenticate without credentials - just show message briefly
       return;
@@ -135,21 +145,32 @@ void KOReaderSettingsActivity::render(RenderLock&&) {
       [this](int index) {
         // Draw status for each setting
         if (index == 0) {
+          // KOReader Profiles - show which profile is active, if any
+          const int activeIndex = KOREADER_STORE.getActiveIndex();
+          if (activeIndex < 0) {
+            return std::string(tr(STR_NOT_SET));
+          }
+          const auto* activeProfile = KOREADER_STORE.getProfile(static_cast<size_t>(activeIndex));
+          if (!activeProfile) {
+            return std::string(tr(STR_NOT_SET));
+          }
+          return activeProfile->name.empty() ? activeProfile->username : activeProfile->name;
+        } else if (index == 1) {
           auto username = KOREADER_STORE.getUsername();
           return username.empty() ? std::string(tr(STR_NOT_SET)) : username;
-        } else if (index == 1) {
-          return KOREADER_STORE.getPassword().empty() ? std::string(tr(STR_NOT_SET)) : std::string("******");
         } else if (index == 2) {
+          return KOREADER_STORE.getPassword().empty() ? std::string(tr(STR_NOT_SET)) : std::string("******");
+        } else if (index == 3) {
           auto serverUrl = KOREADER_STORE.getServerUrl();
           return serverUrl.empty() ? std::string(tr(STR_DEFAULT_VALUE)) : serverUrl;
-        } else if (index == 3) {
+        } else if (index == 4) {
           return KOREADER_STORE.getMatchMethod() == DocumentMatchMethod::FILENAME ? std::string(tr(STR_FILENAME))
                                                                                   : std::string(tr(STR_BINARY));
-        } else if (index == 4) {
-          return SETTINGS.koSyncAutoPullOnOpen ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
         } else if (index == 5) {
-          return SETTINGS.koSyncAutoPushOnClose ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
+          return SETTINGS.koSyncAutoPullOnOpen ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
         } else if (index == 6) {
+          return SETTINGS.koSyncAutoPushOnClose ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
+        } else if (index == 7) {
           return KOREADER_STORE.hasCredentials() ? "" : std::string("[") + tr(STR_SET_CREDENTIALS_FIRST) + "]";
         }
         return std::string(tr(STR_NOT_SET));

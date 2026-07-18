@@ -1097,10 +1097,18 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
 
 bool JsonSettingsIO::saveKOReader(const KOReaderCredentialStore& store, const char* path) {
   JsonDocument doc;
-  doc["username"] = store.getUsername();
-  doc["password_obf"] = obfuscation::obfuscateToBase64(store.getPassword());
-  doc["serverUrl"] = store.getServerUrl();
-  doc["matchMethod"] = static_cast<uint8_t>(store.getMatchMethod());
+
+  JsonArray arr = doc["profiles"].to<JsonArray>();
+  for (const auto& profile : store.profiles) {
+    JsonObject obj = arr.add<JsonObject>();
+    obj["name"] = profile.name;
+    obj["username"] = profile.username;
+    obj["password_obf"] = obfuscation::obfuscateToBase64(profile.password);
+    obj["serverUrl"] = profile.serverUrl;
+    obj["matchMethod"] = static_cast<uint8_t>(profile.matchMethod);
+  }
+  doc["activeIndex"] = store.activeIndex;
+
   return saveJsonDocumentToFile("KRS", path, doc);
 }
 
@@ -1114,18 +1122,88 @@ bool JsonSettingsIO::loadKOReader(KOReaderCredentialStore& store, const char* js
     return false;
   }
 
-  store.username = doc["username"] | std::string("");
-  bool ok = false;
-  store.password = obfuscation::deobfuscateFromBase64(doc["password_obf"] | "", &ok);
-  if (!ok || store.password.empty()) {
-    store.password = doc["password"] | std::string("");
-    if (!store.password.empty() && needsResave) *needsResave = true;
-  }
-  store.serverUrl = doc["serverUrl"] | std::string("");
-  uint8_t method = doc["matchMethod"] | (uint8_t)0;
-  store.matchMethod = static_cast<DocumentMatchMethod>(method);
+  if (!doc["profiles"].isNull()) {
+    // Current multi-profile format.
+    store.profiles.clear();
+    JsonArray arr = doc["profiles"].as<JsonArray>();
+    for (JsonObject obj : arr) {
+      if (store.profiles.size() >= KOReaderCredentialStore::MAX_PROFILES) break;
+      KOReaderProfile profile;
+      profile.name = obj["name"] | std::string("");
+      profile.username = obj["username"] | std::string("");
+      bool ok = false;
+      profile.password = obfuscation::deobfuscateFromBase64(obj["password_obf"] | "", &ok);
+      if (!ok || profile.password.empty()) {
+        profile.password = obj["password"] | std::string("");
+        if (!profile.password.empty() && needsResave) *needsResave = true;
+      }
+      profile.serverUrl = obj["serverUrl"] | std::string("");
+      uint8_t method = obj["matchMethod"] | (uint8_t)0;
+      profile.matchMethod = static_cast<DocumentMatchMethod>(method);
+      store.profiles.push_back(std::move(profile));
+    }
+    const int active = doc["activeIndex"] | 0;
+    store.activeIndex = (active >= 0 && static_cast<size_t>(active) < store.profiles.size())
+                             ? active
+                             : (store.profiles.empty() ? -1 : 0);
+  } else {
+    // Legacy single-record format written before multi-profile support -- wrap it
+    // into a single "Profile 1" and flag for resave so the file upgrades on disk.
+    KOReaderProfile profile;
+    profile.name = "Profile 1";
+    profile.username = doc["username"] | std::string("");
+    bool ok = false;
+    profile.password = obfuscation::deobfuscateFromBase64(doc["password_obf"] | "", &ok);
+    if (!ok || profile.password.empty()) {
+      profile.password = doc["password"] | std::string("");
+    }
+    profile.serverUrl = doc["serverUrl"] | std::string("");
+    uint8_t method = doc["matchMethod"] | (uint8_t)0;
+    profile.matchMethod = static_cast<DocumentMatchMethod>(method);
 
-  LOG_DBG("KRS", "Loaded KOReader credentials for user: %s", store.username.c_str());
+    store.profiles.clear();
+    store.profiles.push_back(std::move(profile));
+    store.activeIndex = 0;
+    if (needsResave) *needsResave = true;
+  }
+
+  LOG_DBG("KRS", "Loaded %zu KOReader profile(s), active index %d", store.profiles.size(), store.activeIndex);
+  return true;
+}
+
+// Legacy single-record mirror (koreader.json's original shape). Kept in sync with
+// whichever profile is active so other firmware sharing the same SD card (e.g. stock
+// crosspoint-reader, which only ever understood one KOReader account) keeps working
+// unchanged -- it never sees the multi-profile store and has no reason to.
+bool JsonSettingsIO::saveKOReaderLegacyMirror(const KOReaderCredentialStore& store, const char* path) {
+  JsonDocument doc;
+  doc["username"] = store.getUsername();
+  doc["password_obf"] = obfuscation::obfuscateToBase64(store.getPassword());
+  doc["serverUrl"] = store.getServerUrl();
+  doc["matchMethod"] = static_cast<uint8_t>(store.getMatchMethod());
+  return saveJsonDocumentToFile("KRS", path, doc);
+}
+
+bool JsonSettingsIO::loadKOReaderLegacyProfile(KOReaderProfile& profile, const char* json) {
+  JsonDocument doc;
+  auto error = deserializeJson(doc, json);
+  if (error) {
+    LOG_ERR("KRS", "Legacy koreader.json parse error: %s", error.c_str());
+    CPR_VCODEX_LOG_EVENT("KRS", std::string("Legacy koreader.json parse error: ") + error.c_str());
+    return false;
+  }
+
+  profile.username = doc["username"] | std::string("");
+  bool ok = false;
+  profile.password = obfuscation::deobfuscateFromBase64(doc["password_obf"] | "", &ok);
+  if (!ok || profile.password.empty()) {
+    profile.password = doc["password"] | std::string("");
+  }
+  profile.serverUrl = doc["serverUrl"] | std::string("");
+  uint8_t method = doc["matchMethod"] | (uint8_t)0;
+  profile.matchMethod = static_cast<DocumentMatchMethod>(method);
+
+  LOG_DBG("KRS", "Loaded legacy KOReader credentials for user: %s", profile.username.c_str());
   return true;
 }
 
