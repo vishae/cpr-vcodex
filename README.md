@@ -19,6 +19,10 @@ Two changes on top of franssjz's `1.3.0.35-cpr-vcodex`, both around KOReader syn
   - If the default `https://sync.koreader.rocks` goes down -- which it can -- a saved backup server profile can be switched to without losing or overwriting the original credentials.
   - For a self-hosted [koreader-sync-server](https://github.com/koreader/koreader-sync-server), the same server may need to be reached differently depending on which network the device is on (e.g. a LAN address at home versus a different address elsewhere). Separate profiles let each network's correct address be saved and switched to, rather than re-entering the server URL every time.
 
+  How it's stored: the full profile list plus which one is active lives in a new `/.crosspoint/koreader_profiles.json`. The original `/.crosspoint/koreader.json` (the file stock crosspoint-reader/CrossPoint Reader also reads) keeps its old single-account shape and is always rewritten to mirror whichever profile is active, so switching back to stock firmware on the same SD card still works.
+
+  **Known limitation:** that mirroring only runs one way. If you edit KoReader credentials from a different firmware that only knows the single-account `koreader.json` shape (e.g. stock CrossPoint Reader), this fork's profile store won't notice -- you'd need to re-enter that change here. No profiles are ever lost, they just won't auto-update from an edit made elsewhere.
+
 Full detail in the [commit history](https://github.com/vishae/cpr-vcodex/commits/master).
 
 ## Flashing
