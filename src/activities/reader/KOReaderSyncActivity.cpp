@@ -377,6 +377,7 @@ void KOReaderSyncActivity::performUpload() {
   progress.document = documentHash;
   progress.progress = localProgress.xpath;
   progress.percentage = localProgress.percentage;
+  progress.timestamp = TimeUtils::getCurrentValidTimestamp();
 
   const auto result = KOReaderSyncClient::updateProgress(progress);
   KOReaderSyncClient::endPersistentSession();

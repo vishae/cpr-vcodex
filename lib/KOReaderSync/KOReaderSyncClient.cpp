@@ -683,6 +683,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   doc["percentage"] = progress.percentage;
   doc["device"] = DEVICE_NAME;
   doc["device_id"] = DEVICE_ID;
+  doc["timestamp"] = progress.timestamp;
 
   std::string body;
   serializeJson(doc, body);
