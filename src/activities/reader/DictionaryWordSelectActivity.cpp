@@ -23,6 +23,14 @@ namespace {
 constexpr int HIGHLIGHT_PADDING_X = 2;
 constexpr int HIGHLIGHT_PADDING_Y = 1;
 constexpr int HIGHLIGHT_RADIUS = 3;
+
+std::string visibleHighlightWord(const std::string& word) {
+  if (word.size() >= 3 && static_cast<unsigned char>(word[0]) == 0xE2 &&
+      static_cast<unsigned char>(word[1]) == 0x80 && static_cast<unsigned char>(word[2]) == 0x83) {
+    return word.substr(3);
+  }
+  return word;
+}
 }  // namespace
 
 void DictionaryWordSelectActivity::onEnter() {
@@ -62,8 +70,9 @@ void DictionaryWordSelectActivity::extractWords() {
     const auto& xPositions = block->getWordXpos();
     const size_t count = std::min(wordList.size(), xPositions.size());
     for (size_t i = 0; i < count; ++i) {
-      const std::string cleaned = DictionaryStore::cleanWord(wordList[i]);
-      if (cleaned.empty()) continue;
+      const std::string cleaned =
+          highlightPhraseMode ? visibleHighlightWord(wordList[i]) : DictionaryStore::cleanWord(wordList[i]);
+      if (cleaned.find_first_not_of(" \t\r\n") == std::string::npos) continue;
       const int16_t x = static_cast<int16_t>(line.xPos + xPositions[i] + marginLeft);
       const int16_t y = static_cast<int16_t>(line.yPos + marginTop);
       const int16_t width = static_cast<int16_t>(std::max(1, measureWordWidth(wordList[i].c_str())));
@@ -190,6 +199,10 @@ void DictionaryWordSelectActivity::moveWord(const int delta) {
 }
 
 void DictionaryWordSelectActivity::updateSelectionHighlight() {
+  if (highlightPhraseMode) {
+    requestUpdate();
+    return;
+  }
   if (redrawSelectionFast()) return;
   requestUpdate();
 }
@@ -337,7 +350,7 @@ void DictionaryWordSelectActivity::drawSelectionHighlight() {
     return;
   }
 
-  const int wordIndex = rows[currentRow].wordIndices[currentWordInRow];
+  const int wordIndex = selectedWordIndex();
   const auto& word = words[wordIndex];
   const int lineHeight = renderer.getLineHeight(readerFontId);
 
@@ -348,12 +361,60 @@ void DictionaryWordSelectActivity::drawSelectionHighlight() {
     renderer.drawText(readerFontId, selectedWord.screenX, selectedWord.screenY, selectedWord.text.c_str(), false);
   };
 
+  if (highlightPhraseMode && anchorWordIndex >= 0) {
+    const int from = std::min(anchorWordIndex, wordIndex);
+    const int to = std::max(anchorWordIndex, wordIndex);
+    for (int index = from; index <= to; ++index) {
+      drawSelectedWord(words[index]);
+    }
+    return;
+  }
+
   drawSelectedWord(word);
 
   const int linkedIndex = word.continuationOf >= 0 ? word.continuationOf : word.continuationIndex;
   if (linkedIndex >= 0 && linkedIndex != wordIndex && linkedIndex < static_cast<int>(words.size())) {
     drawSelectedWord(words[linkedIndex]);
   }
+}
+
+int DictionaryWordSelectActivity::selectedWordIndex() const {
+  if (rows.empty() || currentRow < 0 || currentRow >= static_cast<int>(rows.size()) || currentWordInRow < 0 ||
+      currentWordInRow >= static_cast<int>(rows[currentRow].wordIndices.size())) {
+    return -1;
+  }
+  return rows[currentRow].wordIndices[currentWordInRow];
+}
+
+std::string DictionaryWordSelectActivity::buildSelectedText(const int from, const int to) const {
+  std::string text;
+  text.reserve(256);
+  for (int index = from; index <= to && text.size() < 512; ++index) {
+    std::string word = visibleHighlightWord(words[index].text);
+    const size_t first = word.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) continue;
+    const size_t last = word.find_last_not_of(" \t\r\n");
+    word = word.substr(first, last - first + 1);
+    if (!text.empty()) text.push_back(' ');
+    const size_t remaining = 512 - text.size();
+    text.append(word, 0, remaining);
+  }
+  return text;
+}
+
+void DictionaryWordSelectActivity::confirmHighlightSelection() {
+  const int wordIndex = selectedWordIndex();
+  if (wordIndex < 0) return;
+  if (anchorWordIndex < 0) {
+    anchorWordIndex = wordIndex;
+    requestUpdate();
+    return;
+  }
+
+  const int from = std::min(anchorWordIndex, wordIndex);
+  const int to = std::max(anchorWordIndex, wordIndex);
+  setResult(HighlightResult{buildSelectedText(from, to), static_cast<uint16_t>(from), static_cast<uint16_t>(to)});
+  finish();
 }
 
 void DictionaryWordSelectActivity::lookupSelectedWord() {
@@ -433,6 +494,11 @@ void DictionaryWordSelectActivity::lookupSelectedWord() {
 
 void DictionaryWordSelectActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (highlightPhraseMode && anchorWordIndex >= 0) {
+      anchorWordIndex = -1;
+      requestUpdate();
+      return;
+    }
     ActivityResult result;
     result.isCancelled = true;
     setResult(std::move(result));
@@ -440,7 +506,11 @@ void DictionaryWordSelectActivity::loop() {
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    lookupSelectedWord();
+    if (highlightPhraseMode) {
+      confirmHighlightSelection();
+    } else {
+      lookupSelectedWord();
+    }
     return;
   }
 
@@ -491,11 +561,17 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
                       sideBackgroundHeight, false);
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
+  const char* confirmLabel =
+      highlightPhraseMode
+          ? I18N.get(anchorWordIndex < 0 ? StrId::STR_HIGHLIGHT_START : StrId::STR_SAVE_HIGHLIGHT)
+          : tr(STR_SELECT);
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   GUI.drawSideButtonHints(renderer, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
 
-  storeSelectionBaseRegions();
+  if (!highlightPhraseMode) {
+    storeSelectionBaseRegions();
+  }
   prewarmCurrentSelectionText();
   drawSelectionHighlight();
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);

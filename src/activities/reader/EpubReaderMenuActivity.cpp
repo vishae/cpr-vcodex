@@ -23,7 +23,7 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
 
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes) {
   std::vector<MenuItem> items;
-  items.reserve(17);
+  items.reserve(18);
   items.push_back({MenuAction::READER_SETTINGS, StrId::STR_READING_QUICK_SETTINGS});
   items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
   if (hasFootnotes) {
@@ -32,8 +32,9 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
   items.push_back({MenuAction::LOOK_UP_WORD, StrId::STR_LOOK_UP_WORD});
   items.push_back({MenuAction::LOOKUP_HISTORY, StrId::STR_LOOKUP_HISTORY});
   items.push_back({MenuAction::DICTIONARY, StrId::STR_DICTIONARY});
-  items.push_back({MenuAction::VIEW_BOOKMARKS, StrId::STR_VIEW_BOOKMARKS});
-  items.push_back({MenuAction::SAVE_BOOKMARK, StrId::STR_SAVE_BOOKMARK});
+  items.push_back({MenuAction::VIEW_HIGHLIGHTS, StrId::STR_VIEW_HIGHLIGHTS});
+  items.push_back({MenuAction::SAVE_PAGE_MARK, StrId::STR_SAVE_PAGE_MARK});
+  items.push_back({MenuAction::HIGHLIGHT_TEXT, StrId::STR_HIGHLIGHT_TEXT});
   items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION});
   items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN});
   items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});

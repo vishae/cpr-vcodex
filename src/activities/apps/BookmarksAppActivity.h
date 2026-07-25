@@ -27,7 +27,7 @@ class BookmarksAppActivity final : public Activity {
 
  public:
   explicit BookmarksAppActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("BookmarksApp", renderer, mappedInput) {}
+      : Activity("HighlightsApp", renderer, mappedInput) {}
 
   void onEnter() override;
   void loop() override;

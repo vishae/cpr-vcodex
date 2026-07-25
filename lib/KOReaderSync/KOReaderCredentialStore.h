@@ -13,8 +13,8 @@ enum class DocumentMatchMethod : uint8_t {
 struct KOReaderProfile {
   std::string name;
   std::string username;
-  std::string password;  // Plaintext in memory; obfuscated with hardware key on disk
-  std::string serverUrl;                                            // Custom sync server URL (empty = default)
+  std::string password;   // Plaintext in memory; obfuscated with hardware key on disk
+  std::string serverUrl;  // Custom sync server URL (empty = default)
   DocumentMatchMethod matchMethod = DocumentMatchMethod::FILENAME;  // Default to filename for compatibility
 };
 
@@ -98,6 +98,7 @@ class KOReaderCredentialStore {
   const KOReaderProfile* getProfile(size_t index) const;
   size_t getCount() const { return profiles.size(); }
   bool hasProfiles() const { return !profiles.empty(); }
+  bool canAddProfile() const { return profiles.size() < MAX_PROFILES; }
 
   // Index of the currently active profile, or -1 if none saved yet.
   int getActiveIndex() const { return activeIndex; }

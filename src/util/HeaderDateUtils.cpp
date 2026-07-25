@@ -47,6 +47,29 @@ std::string formatHeaderDateText(const uint32_t timestamp, const bool usedFallba
   (void)usedFallback;
   return TimeUtils::formatDate(timestamp, false);
 }
+
+std::string formatHeaderTimeText(const uint32_t timestamp) {
+  if (!TimeUtils::isClockValid(timestamp)) {
+    return "";
+  }
+
+  TimeUtils::configureTimezone();
+  time_t currentTime = static_cast<time_t>(timestamp);
+  tm localTime = {};
+  if (localtime_r(&currentTime, &localTime) == nullptr) {
+    return "";
+  }
+
+  const bool pm = localTime.tm_hour >= 12;
+  int hour12 = localTime.tm_hour % 12;
+  if (hour12 == 0) {
+    hour12 = 12;
+  }
+
+  char buffer[16];
+  snprintf(buffer, sizeof(buffer), "%d:%02d%s", hour12, localTime.tm_min, pm ? "PM" : "AM");
+  return buffer;
+}
 }  // namespace
 
 HeaderDateUtils::DisplayDateInfo HeaderDateUtils::getDisplayDateInfo() {
@@ -66,16 +89,32 @@ HeaderDateUtils::DisplayDateInfo HeaderDateUtils::getDisplayDateInfo() {
 }
 
 std::string HeaderDateUtils::getDisplayDateText() {
-  if (!SETTINGS.displayDay) {
+  if (!SETTINGS.shouldShowHeaderDate() && !SETTINGS.shouldShowHeaderTime()) {
     return "";
   }
 
-  const auto info = getDisplayDateInfo();
-  return formatHeaderDateText(info.timestamp, info.usedFallback);
+  std::string text;
+  if (SETTINGS.shouldShowHeaderDate()) {
+    const auto info = getDisplayDateInfo();
+    text = formatHeaderDateText(info.timestamp, info.usedFallback);
+  }
+
+  if (SETTINGS.shouldShowHeaderTime()) {
+    const uint32_t timeTimestamp = TimeUtils::getAuthoritativeTimestamp();
+    const std::string timeText = formatHeaderTimeText(timeTimestamp);
+    if (!timeText.empty()) {
+      if (!text.empty()) {
+        text += " ";
+      }
+      text += timeText;
+    }
+  }
+
+  return text;
 }
 
 std::string HeaderDateUtils::getSyncDayReminderText() {
-  const uint8_t threshold = SETTINGS.getSyncDayReminderStartThreshold();
+  const uint8_t threshold = SETTINGS.getEffectiveSyncDayReminderStartThreshold();
   return APP_STATE.shouldShowSyncDayReminder(threshold) ? std::string(tr(STR_SYNC_DAY_REMINDER_MESSAGE)) : "";
 }
 

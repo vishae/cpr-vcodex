@@ -10,8 +10,8 @@
 #include "fontIds.h"
 
 int KOReaderProfileListActivity::getItemCount() const {
-  // Always append a virtual "Add Profile" item, same as the OPDS server list in settings mode.
-  return static_cast<int>(KOREADER_STORE.getCount()) + 1;
+  const int profileCount = static_cast<int>(KOREADER_STORE.getCount());
+  return profileCount + (KOREADER_STORE.canAddProfile() ? 1 : 0);
 }
 
 void KOReaderProfileListActivity::onEnter() {
@@ -37,17 +37,18 @@ void KOReaderProfileListActivity::loop() {
   }
 
   const int itemCount = getItemCount();
-  if (itemCount > 0) {
-    buttonNavigator.onNext([this, itemCount] {
-      selectedIndex = ButtonNavigator::nextIndex(selectedIndex, itemCount);
-      requestUpdate();
-    });
-
-    buttonNavigator.onPrevious([this, itemCount] {
-      selectedIndex = ButtonNavigator::previousIndex(selectedIndex, itemCount);
-      requestUpdate();
-    });
+  if (itemCount <= 0) {
+    return;
   }
+  buttonNavigator.onNext([this, itemCount] {
+    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, itemCount);
+    requestUpdate();
+  });
+
+  buttonNavigator.onPrevious([this, itemCount] {
+    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, itemCount);
+    requestUpdate();
+  });
 }
 
 void KOReaderProfileListActivity::handleSelection() {
@@ -62,7 +63,7 @@ void KOReaderProfileListActivity::handleSelection() {
   if (selectedIndex < profileCount) {
     startActivityForResult(std::make_unique<KOReaderProfileEditActivity>(renderer, mappedInput, selectedIndex),
                            resultHandler);
-  } else {
+  } else if (KOREADER_STORE.canAddProfile()) {
     startActivityForResult(std::make_unique<KOReaderProfileEditActivity>(renderer, mappedInput, -1), resultHandler);
   }
 }

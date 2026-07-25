@@ -15,7 +15,11 @@ class BookmarkStore {
   struct Bookmark {
     uint16_t spineIndex = 0;
     uint16_t pageNumber = 0;
+    uint16_t endPageNumber = 0;
+    uint16_t startWordIndex = 0;
+    uint16_t endWordIndex = 0;
     std::string snippet;
+    bool isTextHighlight = false;
   };
 
   void load(const std::string& cachePath, const std::string& bookId = "") {
@@ -33,6 +37,13 @@ class BookmarkStore {
 
     bookmarks.clear();
     dirty = false;
+
+    if (!storagePath.empty() && !Storage.exists(storagePath.c_str())) {
+      const std::string backupPath = storagePath + ".bak";
+      if (Storage.exists(backupPath.c_str())) {
+        Storage.rename(backupPath.c_str(), storagePath.c_str());
+      }
+    }
 
     FsFile file;
     bool loadedLegacyPath = false;
@@ -68,6 +79,10 @@ class BookmarkStore {
       }
       count = legacyCount;
     }
+    if (count > MAX_ITEMS) {
+      file.close();
+      return;
+    }
 
     bookmarks.reserve(static_cast<size_t>(count));
     for (uint32_t index = 0; index < count; ++index) {
@@ -81,7 +96,32 @@ class BookmarkStore {
         return;
       }
 
-      if (version >= 2) {
+      if (version >= 4) {
+        uint8_t kind = 0;
+        uint16_t snippetLen = 0;
+        if (file.read(&kind, sizeof(kind)) != sizeof(kind) ||
+            file.read(reinterpret_cast<uint8_t*>(&bookmark.endPageNumber), sizeof(bookmark.endPageNumber)) !=
+                sizeof(bookmark.endPageNumber) ||
+            file.read(reinterpret_cast<uint8_t*>(&bookmark.startWordIndex), sizeof(bookmark.startWordIndex)) !=
+                sizeof(bookmark.startWordIndex) ||
+            file.read(reinterpret_cast<uint8_t*>(&bookmark.endWordIndex), sizeof(bookmark.endWordIndex)) !=
+                sizeof(bookmark.endWordIndex) ||
+            file.read(reinterpret_cast<uint8_t*>(&snippetLen), sizeof(snippetLen)) != sizeof(snippetLen) ||
+            snippetLen > MAX_HIGHLIGHT_TEXT_LEN) {
+          bookmarks.clear();
+          file.close();
+          return;
+        }
+        bookmark.isTextHighlight = kind == TEXT_HIGHLIGHT_KIND;
+        if (snippetLen > 0) {
+          bookmark.snippet.resize(snippetLen);
+          if (file.read(reinterpret_cast<uint8_t*>(bookmark.snippet.data()), snippetLen) != snippetLen) {
+            bookmarks.clear();
+            file.close();
+            return;
+          }
+        }
+      } else if (version >= 2) {
         uint8_t snippetLen = 0;
         if (file.read(&snippetLen, 1) == 1 && snippetLen > 0) {
           char buffer[MAX_SNIPPET_LEN + 1];
@@ -94,6 +134,9 @@ class BookmarkStore {
             file.seekCur(snippetLen - toRead);
           }
         }
+      }
+      if (version < 4) {
+        bookmark.endPageNumber = bookmark.pageNumber;
       }
 
       bookmarks.push_back(bookmark);
@@ -112,8 +155,14 @@ class BookmarkStore {
       return;
     }
 
+    const std::string tempPath = storagePath + ".tmp";
+    const std::string backupPath = storagePath + ".bak";
+    if (Storage.exists(tempPath.c_str())) {
+      Storage.remove(tempPath.c_str());
+    }
+
     FsFile file;
-    if (!Storage.openFileForWrite("BKM", getFilePath(), file)) {
+    if (!Storage.openFileForWrite("BKM", tempPath, file)) {
       LOG_ERR("BKM", "Failed to save bookmarks");
       return;
     }
@@ -127,9 +176,12 @@ class BookmarkStore {
 
     for (const auto& bookmark : bookmarks) {
       ok = ok && writePodChecked(bookmark.spineIndex) && writePodChecked(bookmark.pageNumber);
-      const uint8_t snippetLen =
-          static_cast<uint8_t>(std::min(bookmark.snippet.size(), static_cast<size_t>(MAX_SNIPPET_LEN)));
-      ok = ok && writePodChecked(snippetLen);
+      const uint8_t kind = bookmark.isTextHighlight ? TEXT_HIGHLIGHT_KIND : PAGE_MARK_KIND;
+      const uint16_t snippetLen =
+          static_cast<uint16_t>(std::min(bookmark.snippet.size(), static_cast<size_t>(MAX_HIGHLIGHT_TEXT_LEN)));
+      ok = ok && writePodChecked(kind) && writePodChecked(bookmark.endPageNumber) &&
+           writePodChecked(bookmark.startWordIndex) && writePodChecked(bookmark.endWordIndex) &&
+           writePodChecked(snippetLen);
       if (snippetLen > 0) {
         ok = ok && file.write(reinterpret_cast<const uint8_t*>(bookmark.snippet.c_str()), snippetLen) == snippetLen;
       }
@@ -138,7 +190,31 @@ class BookmarkStore {
     ok = ok && file.close();
     if (!ok) {
       LOG_ERR("BKM", "Failed while writing bookmarks");
+      Storage.remove(tempPath.c_str());
       return;
+    }
+
+    const bool hadOriginal = Storage.exists(storagePath.c_str());
+    if (hadOriginal) {
+      if (Storage.exists(backupPath.c_str())) {
+        Storage.remove(backupPath.c_str());
+      }
+      if (!Storage.rename(storagePath.c_str(), backupPath.c_str())) {
+        LOG_ERR("BKM", "Failed to back up highlights");
+        Storage.remove(tempPath.c_str());
+        return;
+      }
+    }
+    if (!Storage.rename(tempPath.c_str(), storagePath.c_str())) {
+      LOG_ERR("BKM", "Failed to replace highlights");
+      if (hadOriginal) {
+        Storage.rename(backupPath.c_str(), storagePath.c_str());
+      }
+      Storage.remove(tempPath.c_str());
+      return;
+    }
+    if (hadOriginal && Storage.exists(backupPath.c_str())) {
+      Storage.remove(backupPath.c_str());
     }
 
     dirty = false;
@@ -152,17 +228,52 @@ class BookmarkStore {
       return false;
     }
 
-    bookmarks.push_back({spineIndex, pageNumber, snippet.substr(0, MAX_SNIPPET_LEN)});
+    bookmarks.push_back(
+        {spineIndex, pageNumber, pageNumber, 0, 0, snippet.substr(0, MAX_SNIPPET_LEN), false});
+    dirty = true;
+    return true;
+  }
+
+  bool addTextHighlight(const uint16_t spineIndex, const uint16_t pageNumber, const uint16_t endPageNumber,
+                        const uint16_t startWordIndex, const uint16_t endWordIndex, const std::string& text) {
+    if (text.empty() || bookmarks.size() >= MAX_ITEMS) {
+      return false;
+    }
+    const auto duplicate = std::find_if(bookmarks.begin(), bookmarks.end(), [&](const Bookmark& item) {
+      return item.isTextHighlight && item.spineIndex == spineIndex && item.pageNumber == pageNumber &&
+             item.endPageNumber == endPageNumber && item.startWordIndex == startWordIndex &&
+             item.endWordIndex == endWordIndex && item.snippet == text;
+    });
+    if (duplicate != bookmarks.end()) {
+      return true;
+    }
+    bookmarks.push_back({spineIndex, pageNumber, endPageNumber, startWordIndex, endWordIndex,
+                         text.substr(0, MAX_HIGHLIGHT_TEXT_LEN), true});
     dirty = true;
     return true;
   }
 
   bool remove(const uint16_t spineIndex, const uint16_t pageNumber) {
-    auto it = find(spineIndex, pageNumber);
+    auto it = findPageMark(spineIndex, pageNumber);
     if (it == bookmarks.end()) {
       return false;
     }
 
+    bookmarks.erase(it);
+    dirty = true;
+    return true;
+  }
+
+  bool removeItem(const Bookmark& item) {
+    const auto it = std::find_if(bookmarks.begin(), bookmarks.end(), [&](const Bookmark& current) {
+      return current.isTextHighlight == item.isTextHighlight && current.spineIndex == item.spineIndex &&
+             current.pageNumber == item.pageNumber && current.endPageNumber == item.endPageNumber &&
+             current.startWordIndex == item.startWordIndex && current.endWordIndex == item.endWordIndex &&
+             current.snippet == item.snippet;
+    });
+    if (it == bookmarks.end()) {
+      return false;
+    }
     bookmarks.erase(it);
     dirty = true;
     return true;
@@ -178,7 +289,7 @@ class BookmarkStore {
 
   [[nodiscard]] bool has(const uint16_t spineIndex, const uint16_t pageNumber) const {
     return std::any_of(bookmarks.begin(), bookmarks.end(), [spineIndex, pageNumber](const Bookmark& bookmark) {
-      return bookmark.spineIndex == spineIndex && bookmark.pageNumber == pageNumber;
+      return !bookmark.isTextHighlight && bookmark.spineIndex == spineIndex && bookmark.pageNumber == pageNumber;
     });
   }
 
@@ -187,8 +298,12 @@ class BookmarkStore {
   void markDirty() { dirty = true; }
 
  private:
-  static constexpr uint8_t FILE_VERSION = 3;
+  static constexpr uint8_t FILE_VERSION = 4;
+  static constexpr uint8_t PAGE_MARK_KIND = 0;
+  static constexpr uint8_t TEXT_HIGHLIGHT_KIND = 1;
   static constexpr uint8_t MAX_SNIPPET_LEN = 80;
+  static constexpr uint16_t MAX_HIGHLIGHT_TEXT_LEN = 512;
+  static constexpr size_t MAX_ITEMS = 256;
 
   std::vector<Bookmark> bookmarks;
   std::string storagePath;
@@ -197,9 +312,13 @@ class BookmarkStore {
 
   [[nodiscard]] std::string getFilePath() const { return storagePath; }
 
-  std::vector<Bookmark>::iterator find(const uint16_t spineIndex, const uint16_t pageNumber) {
+  std::vector<Bookmark>::iterator findPageMark(const uint16_t spineIndex, const uint16_t pageNumber) {
     return std::find_if(bookmarks.begin(), bookmarks.end(), [spineIndex, pageNumber](const Bookmark& bookmark) {
-      return bookmark.spineIndex == spineIndex && bookmark.pageNumber == pageNumber;
+      return !bookmark.isTextHighlight && bookmark.spineIndex == spineIndex && bookmark.pageNumber == pageNumber;
     });
+  }
+
+  std::vector<Bookmark>::iterator find(const uint16_t spineIndex, const uint16_t pageNumber) {
+    return findPageMark(spineIndex, pageNumber);
   }
 };

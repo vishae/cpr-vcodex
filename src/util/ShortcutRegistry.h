@@ -70,7 +70,7 @@ inline const std::array<ShortcutDefinition, 17>& getShortcutDefinitions() {
       ShortcutDefinition{ShortcutId::RecentBooks, StrId::STR_MENU_RECENT_BOOKS, StrId::STR_RECENT_BOOKS_APP_DESC,
                          UIIcon::Recent, &CrossPointSettings::recentBooksShortcut,
                          &CrossPointSettings::recentBooksShortcutOrder, &CrossPointSettings::recentBooksShortcutVisible},
-      ShortcutDefinition{ShortcutId::Bookmarks, StrId::STR_BOOKMARKS, StrId::STR_BOOKMARKS_APP_DESC, UIIcon::Book,
+      ShortcutDefinition{ShortcutId::Bookmarks, StrId::STR_HIGHLIGHTS, StrId::STR_HIGHLIGHTS_APP_DESC, UIIcon::Book,
                          &CrossPointSettings::bookmarksShortcut, &CrossPointSettings::bookmarksShortcutOrder,
                          &CrossPointSettings::bookmarksShortcutVisible},
       ShortcutDefinition{ShortcutId::Favorites, StrId::STR_FAVORITES, StrId::STR_FAVORITES_APP_DESC, UIIcon::Heart,

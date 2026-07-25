@@ -164,7 +164,7 @@ void BookmarksAppActivity::openSelectedBook() {
           [bookId = entry.bookId](const BookmarkStore::Bookmark& bookmark) {
             BookmarkStore store;
             store.load("", bookId);
-            const bool removed = store.remove(bookmark.spineIndex, bookmark.pageNumber);
+            const bool removed = store.removeItem(bookmark);
             if (removed) {
               store.save();
             }
@@ -200,7 +200,7 @@ void BookmarksAppActivity::confirmDeleteSelectedBook() {
 
   const BookEntry entry = entries[selectedIndex];
   startActivityForResult(
-      std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE_ALL_BOOKMARKS), entry.title),
+      std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE_ALL_HIGHLIGHTS), entry.title),
       [this, bookId = entry.bookId](const ActivityResult& result) {
         if (!result.isCancelled) {
           clearBookmarksForBook(bookId);
@@ -258,10 +258,10 @@ void BookmarksAppActivity::render(RenderLock&&) {
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int listHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
 
-  HeaderDateUtils::drawHeaderWithDate(renderer, tr(STR_BOOKMARKS), tr(STR_BOOKMARKS_APP_DESC));
+  HeaderDateUtils::drawHeaderWithDate(renderer, tr(STR_HIGHLIGHTS), tr(STR_HIGHLIGHTS_APP_DESC));
 
   if (entries.empty()) {
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_BOOKMARKS));
+    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_HIGHLIGHTS));
   } else {
     GUI.drawList(renderer, Rect{0, contentTop, pageWidth, listHeight}, static_cast<int>(entries.size()), selectedIndex,
                  [this](const int index) { return entries[index].title; },

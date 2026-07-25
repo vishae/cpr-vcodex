@@ -16,7 +16,9 @@
 #include "ReadingStatsActivity.h"
 #include "ScreenCleanActivity.h"
 #include "SleepAppActivity.h"
+#include "activities/settings/ClockSyncActivity.h"
 #include "SyncDayActivity.h"
+#include "CrossPointSettings.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "OpdsServerStore.h"
@@ -117,7 +119,7 @@ void AppsActivity::render(RenderLock&&) {
   } else {
     GUI.drawList(renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(appShortcuts.size()),
                  selectedIndex,
-                 [this](const int index) { return std::string(I18N.get(appShortcuts[index]->nameId)); },
+                 [this](const int index) { return ShortcutUiMetadata::getName(*appShortcuts[index]); },
                  [this](const int index) {
                    return (index >= 0 && index < static_cast<int>(shortcutSubtitles.size())) ? shortcutSubtitles[index]
                                                                                               : std::string{};
@@ -158,7 +160,11 @@ void AppsActivity::openSelectedApp() {
       activity = std::make_unique<ReadingStatsActivity>(renderer, mappedInput);
       break;
     case ShortcutId::SyncDay:
-      activity = std::make_unique<SyncDayActivity>(renderer, mappedInput);
+      if (SETTINGS.isHardwareRtcAutoDayClockActive()) {
+        activity = std::make_unique<ClockSyncActivity>(renderer, mappedInput);
+      } else {
+        activity = std::make_unique<SyncDayActivity>(renderer, mappedInput);
+      }
       break;
     case ShortcutId::Settings:
       activityManager.goToSettings();

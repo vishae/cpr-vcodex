@@ -1,6 +1,7 @@
 #include "BaseTheme.h"
 
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <Logging.h>
@@ -8,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -15,12 +17,27 @@
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/TimeUtils.h"
 
 // Internal constants
 namespace {
 constexpr int homeMenuMargin = 20;
 constexpr int homeMarginTop = 30;
 constexpr int subtitleY = 738;
+constexpr int statusBarBatteryIconOnlyWidth = 20;
+
+int statusBarBatteryAreaWidth(const GfxRenderer& renderer, const ThemeMetrics& metrics, const bool showPercentage) {
+  if (!SETTINGS.statusBarBattery) {
+    return 0;
+  }
+  if (showPercentage) {
+    char pctBuf[8];
+    snprintf(pctBuf, sizeof(pctBuf), "%u%%", powerManager.getBatteryPercentage());
+    return metrics.batteryWidth + BaseTheme::batteryPercentSpacing +
+           renderer.getTextWidth(SMALL_FONT_ID, pctBuf);
+  }
+  return statusBarBatteryIconOnlyWidth;
+}
 
 std::vector<int> allocateTabTextWidths(const std::vector<int>& desiredWidths, int textBudget) {
   const int tabCount = static_cast<int>(desiredWidths.size());
@@ -878,6 +895,30 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
                         showBatteryPercentage);
   }
 
+  // Draw Clock (X3 only — DS3231 RTC)
+  int clockTextWidth = 0;
+  const bool clockOnLeft =
+      SETTINGS.statusBarClock == CrossPointSettings::STATUS_BAR_CLOCK_LEFT && halClock.isAvailable();
+  const bool clockOnRight =
+      SETTINGS.statusBarClock == CrossPointSettings::STATUS_BAR_CLOCK_RIGHT && halClock.isAvailable();
+  if (clockOnLeft || clockOnRight) {
+    char timeBuf[9];
+    if (TimeUtils::formatStatusBarClockTime(timeBuf, sizeof(timeBuf), SETTINGS.clockFormat == 1)) {
+      clockTextWidth = renderer.getTextWidth(SMALL_FONT_ID, timeBuf);
+      int clockX;
+      if (clockOnLeft) {
+        const int batteryLeftX = metrics.statusBarHorizontalMargin + orientedMarginLeft + 1;
+        const int batteryAreaWidth = statusBarBatteryAreaWidth(renderer, metrics, showBatteryPercentage);
+        clockX = batteryLeftX + batteryAreaWidth + (batteryAreaWidth > 0 ? 6 : 0);
+      } else {
+        // Position to the left of the progress text (with a small gap)
+        clockX = renderer.getScreenWidth() - metrics.statusBarHorizontalMargin - orientedMarginRight -
+                 progressTextWidth - (progressTextWidth > 0 ? 10 : 0) - clockTextWidth;
+      }
+      renderer.drawText(SMALL_FONT_ID, clockX, textY, timeBuf);
+    }
+  }
+
   // Draw Title
   if (!title.empty()) {
     textY -= textYOffset;
@@ -886,9 +927,11 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     const int rendererableScreenWidth =
         renderer.getScreenWidth() - (metrics.statusBarHorizontalMargin * 2) - orientedMarginLeft - orientedMarginRight;
 
-    const int batterySize = SETTINGS.statusBarBattery ? (showBatteryPercentage ? 50 : 20) : 0;
-    const int titleMarginLeft = batterySize + 30;
-    const int titleMarginRight = progressTextWidth + 30;
+    const int batteryAreaWidth = statusBarBatteryAreaWidth(renderer, metrics, showBatteryPercentage);
+    const int clockReserveLeft = clockOnLeft && clockTextWidth > 0 ? (clockTextWidth + 10) : 0;
+    const int clockReserveRight = clockOnRight && clockTextWidth > 0 ? (clockTextWidth + 10) : 0;
+    const int titleMarginLeft = batteryAreaWidth + clockReserveLeft + 30;
+    const int titleMarginRight = progressTextWidth + clockReserveRight + 30;
 
     // Attempt to center title on the screen, but if title is too wide then later we will center it within the
     // available space.

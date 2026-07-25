@@ -86,6 +86,8 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           artifact="artifacts/${tag}.bin"
           metadata="artifacts/${tag}.json"
+          budget_json="artifacts/${tag}-firmware-budget.json"
+          budget_md="artifacts/${tag}-firmware-budget.md"
           notes_file="$(mktemp)"
 
           {
@@ -97,10 +99,16 @@ jobs:
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release upload "${tag}" \
               "${artifact}#${tag}.bin" \
+              "${metadata}#${tag}.json" \
+              "${budget_json}#${tag}-firmware-budget.json" \
+              "${budget_md}#${tag}-firmware-budget.md" \
               --clobber
           else
             gh release create "${tag}" \
               "${artifact}#${tag}.bin" \
+              "${metadata}#${tag}.json" \
+              "${budget_json}#${tag}-firmware-budget.json" \
+              "${budget_md}#${tag}-firmware-budget.md" \
               --verify-tag \
               --title "${tag}" \
               --notes-file "${notes_file}"

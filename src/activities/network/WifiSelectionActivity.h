@@ -75,6 +75,9 @@ class WifiSelectionActivity final : public Activity {
   // Whether to attempt auto-connect on entry
   const bool allowAutoConnect;
 
+  // Whether a successful connection should perform the one-time RTC sync hook.
+  const bool syncRtcOnConnect;
+
   // Whether we are attempting to auto-connect
   bool autoConnecting = false;
 
@@ -106,8 +109,11 @@ class WifiSelectionActivity final : public Activity {
   void onComplete(bool connected);
 
  public:
-  explicit WifiSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool autoConnect = false)
-      : Activity("WifiSelection", renderer, mappedInput), allowAutoConnect(autoConnect) {}
+  explicit WifiSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool autoConnect = false,
+                                 bool syncRtcOnConnect = true)
+      : Activity("WifiSelection", renderer, mappedInput),
+        allowAutoConnect(autoConnect),
+        syncRtcOnConnect(syncRtcOnConnect) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

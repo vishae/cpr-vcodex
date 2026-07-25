@@ -9,10 +9,11 @@
 #include "CrossPointSettings.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/ShortcutUiMetadata.h"
 
 namespace {
 std::string getEntryTitle(const ShortcutOrderEntry& entry) {
-  return entry.isAppsHub ? std::string(tr(STR_APPS)) : std::string(I18N.get(entry.definition->nameId));
+  return entry.isAppsHub ? std::string(tr(STR_APPS)) : ShortcutUiMetadata::getName(*entry.definition);
 }
 }  // namespace
 

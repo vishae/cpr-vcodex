@@ -125,20 +125,6 @@ int builtInReaderFontId(uint8_t family, uint8_t size) {
         default:
           return NOTOSANS_14_FONT_ID;
       }
-    case CrossPointSettings::LEXEND:
-      switch (size) {
-        case CrossPointSettings::X_SMALL:
-          return LEXEND_10_FONT_ID;
-        case CrossPointSettings::SMALL:
-          return LEXEND_12_FONT_ID;
-        case CrossPointSettings::LARGE:
-          return LEXEND_16_FONT_ID;
-        case CrossPointSettings::EXTRA_LARGE:
-          return LEXEND_18_FONT_ID;
-        case CrossPointSettings::MEDIUM:
-        default:
-          return LEXEND_14_FONT_ID;
-      }
     case CrossPointSettings::BOOKERLY:
     default:
       switch (size) {

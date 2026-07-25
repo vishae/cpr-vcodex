@@ -11,6 +11,10 @@
 #include <MemoryBudget.h>
 
 #include <algorithm>
+#include <array>
+#include <cctype>
+#include <cstdlib>
+#include <cstring>
 #include <iterator>
 #include <limits>
 
@@ -201,6 +205,34 @@ bool writeReaderProgressFile(const std::string& progressPath, const int spineInd
   return ProgressFile::writeAtomicPath("ERS", progressPath, data, sizeof(data));
 }
 
+struct HighlightWordRef {
+  const PageLine* line = nullptr;
+  const TextBlock* block = nullptr;
+  uint16_t index = 0;
+};
+
+bool hasEmSpacePrefix(const std::string& text) {
+  return text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xE2 &&
+         static_cast<unsigned char>(text[1]) == 0x80 && static_cast<unsigned char>(text[2]) == 0x83;
+}
+
+bool nextHighlightToken(const char*& cursor, const char*& start, size_t& length) {
+  while (*cursor && std::isspace(static_cast<unsigned char>(*cursor))) ++cursor;
+  if (!*cursor) return false;
+  start = cursor;
+  while (*cursor && !std::isspace(static_cast<unsigned char>(*cursor))) ++cursor;
+  length = static_cast<size_t>(cursor - start);
+  return length > 0;
+}
+
+bool highlightWordMatches(const std::string& rawWord, const char* token, const size_t tokenLength) {
+  const char* word = rawWord.c_str() + (hasEmSpacePrefix(rawWord) ? 3 : 0);
+  while (*word && std::isspace(static_cast<unsigned char>(*word))) ++word;
+  size_t length = std::strlen(word);
+  while (length > 0 && std::isspace(static_cast<unsigned char>(word[length - 1]))) --length;
+  return length == tokenLength && std::strncmp(word, token, tokenLength) == 0;
+}
+
 }  // namespace
 
 void EpubReaderActivity::onEnter() {
@@ -374,7 +406,7 @@ void EpubReaderActivity::loop() {
       }
       const bool showedAchievement = showPendingAchievementPopups(renderer);
       if (!showedAchievement) {
-        GUI.drawPopup(renderer, addedBookmark ? tr(STR_BOOKMARK_ADDED) : tr(STR_BOOKMARK_REMOVED));
+        GUI.drawPopup(renderer, addedBookmark ? tr(STR_PAGE_MARK_ADDED) : tr(STR_PAGE_MARK_REMOVED));
         renderer.displayBuffer();
         delay(500);
       }
@@ -619,7 +651,7 @@ void EpubReaderActivity::saveCurrentPageBookmark() {
   const uint16_t spineIndex = static_cast<uint16_t>(currentSpineIndex);
   const uint16_t pageNumber = static_cast<uint16_t>(section->currentPage);
   if (bookmarkStore.has(spineIndex, pageNumber)) {
-    GUI.drawPopup(renderer, tr(STR_BOOKMARK_ALREADY_SAVED));
+    GUI.drawPopup(renderer, tr(STR_PAGE_MARK_ALREADY_SAVED));
     renderer.displayBuffer();
     delay(500);
     requestUpdate();
@@ -635,7 +667,7 @@ void EpubReaderActivity::saveCurrentPageBookmark() {
 
   const bool showedAchievement = showPendingAchievementPopups(renderer);
   if (!showedAchievement) {
-    GUI.drawPopup(renderer, tr(STR_BOOKMARK_ADDED));
+    GUI.drawPopup(renderer, tr(STR_PAGE_MARK_ADDED));
     renderer.displayBuffer();
     delay(500);
   }
@@ -890,12 +922,12 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
                              });
       break;
     }
-    case EpubReaderMenuActivity::MenuAction::VIEW_BOOKMARKS: {
+    case EpubReaderMenuActivity::MenuAction::VIEW_HIGHLIGHTS: {
       READING_STATS.noteActivity();
       startActivityForResult(std::make_unique<BookmarksActivity>(
                                  renderer, mappedInput, bookmarkStore.getAll(), epub, "",
                                  [this](const BookmarkStore::Bookmark& bookmark) {
-                                   const bool removed = bookmarkStore.remove(bookmark.spineIndex, bookmark.pageNumber);
+                                   const bool removed = bookmarkStore.removeItem(bookmark);
                                    if (removed) {
                                      bookmarkStore.save();
                                    }
@@ -917,9 +949,44 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       });
       break;
     }
-    case EpubReaderMenuActivity::MenuAction::SAVE_BOOKMARK: {
+    case EpubReaderMenuActivity::MenuAction::SAVE_PAGE_MARK: {
       READING_STATS.noteActivity();
       saveCurrentPageBookmark();
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::HIGHLIGHT_TEXT: {
+      int overlayMarginLeft = 0;
+      int overlayMarginTop = 0;
+      auto page = loadCurrentPageForOverlay(overlayMarginLeft, overlayMarginTop);
+      if (!page || !section) {
+        requestUpdate();
+        break;
+      }
+      const uint16_t selectionSpine = static_cast<uint16_t>(currentSpineIndex);
+      const uint16_t selectionPage = static_cast<uint16_t>(section->currentPage);
+      READING_STATS.noteActivity();
+      startActivityForResult(
+          std::make_unique<DictionaryWordSelectActivity>(renderer, mappedInput, page, SETTINGS.getReaderFontId(),
+                                                         overlayMarginLeft, overlayMarginTop, true),
+          [this, selectionSpine, selectionPage](const ActivityResult& result) {
+            READING_STATS.resumeSession();
+            if (!result.isCancelled) {
+              const auto& highlight = std::get<HighlightResult>(result.data);
+              const bool saved = bookmarkStore.addTextHighlight(selectionSpine, selectionPage, selectionPage,
+                                                                highlight.startWordIndex, highlight.endWordIndex,
+                                                                highlight.text);
+              if (saved) {
+                bookmarkStore.save();
+                if (epub && !READING_STATS.shouldIgnorePath(epub->getPath())) {
+                  ACHIEVEMENTS.recordBookmarkAdded();
+                }
+              }
+              GUI.drawPopup(renderer, saved ? tr(STR_HIGHLIGHT_SAVED) : tr(STR_HIGHLIGHT_FAILED));
+              renderer.displayBuffer();
+              delay(600);
+            }
+            requestUpdate();
+          });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::GO_TO_PERCENT: {
@@ -1464,6 +1531,105 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
     LOG_ERR("ERS", "Could not save progress!");
   }
 }
+
+void EpubReaderActivity::drawTextHighlights(const Page& page, const int orientedMarginTop,
+                                            const int orientedMarginLeft) const {
+  if (!section || bookmarkStore.isEmpty()) return;
+
+  constexpr size_t MAX_VISIBLE_WORDS = 240;
+  std::array<HighlightWordRef, MAX_VISIBLE_WORDS> words{};
+  size_t wordCount = 0;
+  for (const auto& element : page.elements) {
+    if (!element || element->getTag() != TAG_PageLine || wordCount >= words.size()) continue;
+    const auto& line = static_cast<const PageLine&>(*element);
+    const auto& blockPtr = line.getBlock();
+    if (!blockPtr) continue;
+    const auto& block = *blockPtr;
+    const size_t count = std::min({block.getWords().size(), block.getWordXpos().size(), block.getWordStyles().size()});
+    for (size_t index = 0; index < count && wordCount < words.size(); ++index) {
+      const std::string& raw = block.getWords()[index];
+      const char* visible = raw.c_str() + (hasEmSpacePrefix(raw) ? 3 : 0);
+      bool hasText = false;
+      for (const char* cursor = visible; *cursor; ++cursor) {
+        if (!std::isspace(static_cast<unsigned char>(*cursor))) {
+          hasText = true;
+          break;
+        }
+      }
+      if (hasText) {
+        words[wordCount++] = HighlightWordRef{&line, &block, static_cast<uint16_t>(index)};
+      }
+    }
+  }
+  if (wordCount == 0) return;
+
+  const int currentPage = section->currentPage;
+  const int fontId = SETTINGS.getReaderFontId();
+  const int lineHeight = renderer.getLineHeight(fontId);
+  for (const auto& highlight : bookmarkStore.getAll()) {
+    if (!highlight.isTextHighlight || highlight.spineIndex != static_cast<uint16_t>(currentSpineIndex) ||
+        highlight.snippet.empty()) {
+      continue;
+    }
+    if (currentPage + 3 < highlight.pageNumber || currentPage > static_cast<int>(highlight.endPageNumber) + 3) {
+      continue;
+    }
+
+    size_t bestStart = wordCount;
+    size_t bestEnd = wordCount;
+    int bestDistance = std::numeric_limits<int>::max();
+    for (size_t candidate = 0; candidate < wordCount; ++candidate) {
+      const char* cursor = highlight.snippet.c_str();
+      const char* token = nullptr;
+      size_t tokenLength = 0;
+      size_t pageWord = candidate;
+      bool matched = true;
+      while (nextHighlightToken(cursor, token, tokenLength)) {
+        if (pageWord >= wordCount ||
+            !highlightWordMatches(words[pageWord].block->getWords()[words[pageWord].index], token, tokenLength)) {
+          matched = false;
+          break;
+        }
+        ++pageWord;
+      }
+      if (!matched || pageWord == candidate) continue;
+      const int distance = std::abs(static_cast<int>(candidate) - static_cast<int>(highlight.startWordIndex));
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestStart = candidate;
+        bestEnd = pageWord - 1;
+      }
+    }
+
+    if (bestStart == wordCount && currentPage >= highlight.pageNumber && currentPage <= highlight.endPageNumber &&
+        highlight.startWordIndex < wordCount) {
+      bestStart = highlight.startWordIndex;
+      bestEnd = std::min<size_t>(highlight.endWordIndex, wordCount - 1);
+    }
+    if (bestStart == wordCount) continue;
+
+    for (size_t index = bestStart; index <= bestEnd; ++index) {
+      const auto& ref = words[index];
+      const auto& raw = ref.block->getWords()[ref.index];
+      const auto style = ref.block->getWordStyles()[ref.index];
+      const bool hasIndent = hasEmSpacePrefix(raw);
+      const auto drawStyle = static_cast<EpdFontFamily::Style>(style & ~EpdFontFamily::UNDERLINE);
+      const int skipX = hasIndent ? renderer.getTextAdvanceX(fontId, "\xe2\x80\x83", drawStyle) : 0;
+      const int x = orientedMarginLeft + ref.line->xPos + ref.block->getWordXpos()[ref.index] + skipX;
+      const int y = orientedMarginTop + ref.line->yPos;
+      const int width = renderer.getTextAdvanceX(fontId, raw.c_str(), style) - skipX;
+      if (width <= 0) continue;
+
+      if (SETTINGS.bionicReading == CrossPointSettings::BIONIC_READING_OFF) {
+        renderer.fillRectDither(x, y, width, lineHeight, Color::LightGray);
+        renderer.drawText(fontId, x, y, raw.c_str() + (hasIndent ? 3 : 0), true, drawStyle);
+      } else {
+        renderer.drawLine(x, y + lineHeight - 2, x + width, y + lineHeight - 2, true);
+      }
+    }
+  }
+}
+
 void EpubReaderActivity::renderContents(std::shared_ptr<Page> page, const int orientedMarginTop,
                                         const int orientedMarginRight, const int orientedMarginBottom,
                                         const int orientedMarginLeft) {
@@ -1495,6 +1661,7 @@ void EpubReaderActivity::renderContents(std::shared_ptr<Page> page, const int or
   const bool hasConfiguredRefreshMode = ReaderUtils::getConfiguredReaderRefreshMode(configuredRefreshMode);
 
   page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop, SETTINGS.bionicReading);
+  drawTextHighlights(*page, orientedMarginTop, orientedMarginLeft);
   renderStatusBar();
   fcm->logStats("bw_render");
   const auto tBwRender = millis();
@@ -1518,6 +1685,7 @@ void EpubReaderActivity::renderContents(std::shared_ptr<Page> page, const int or
       // Re-render page content to restore images into the blanked area
       // Status bar is not re-rendered here to avoid reading stale dynamic values (e.g. battery %)
       page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop, SETTINGS.bionicReading);
+      drawTextHighlights(*page, orientedMarginTop, orientedMarginLeft);
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     } else {
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
@@ -1546,6 +1714,7 @@ void EpubReaderActivity::renderContents(std::shared_ptr<Page> page, const int or
                                page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft,
                                             orientedMarginTop, SETTINGS.bionicReading);
                              }
+                             drawTextHighlights(*page, orientedMarginTop, orientedMarginLeft);
                              renderStatusBar();
                            },
                            &tiledTimings);
@@ -1583,6 +1752,7 @@ void EpubReaderActivity::renderContents(std::shared_ptr<Page> page, const int or
     } else {
       page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop, SETTINGS.bionicReading);
     }
+    drawTextHighlights(*page, orientedMarginTop, orientedMarginLeft);
     renderStatusBar();
     renderer.copyGrayscaleLsbBuffers();
     const auto tGrayLsb = millis();
@@ -1595,6 +1765,7 @@ void EpubReaderActivity::renderContents(std::shared_ptr<Page> page, const int or
     } else {
       page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop, SETTINGS.bionicReading);
     }
+    drawTextHighlights(*page, orientedMarginTop, orientedMarginLeft);
     renderStatusBar();
     renderer.copyGrayscaleMsbBuffers();
     const auto tGrayMsb = millis();

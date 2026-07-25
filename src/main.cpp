@@ -3,6 +3,7 @@
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
@@ -27,7 +28,6 @@
 #include "OpdsServerStore.h"
 #include "ReadingStatsStore.h"
 #include "RecentBooksStore.h"
-#include "version.h"
 #include "SdCardFontGlobals.h"
 #include "SilentRestart.h"
 #include "UiFontSelection.h"
@@ -39,6 +39,8 @@
 #include "util/ButtonNavigator.h"
 #include "util/CprVcodexLogs.h"
 #include "util/ScreenshotUtil.h"
+#include "util/TimeUtils.h"
+#include "version.h"
 
 MappedInputManager mappedInputManager(gpio);
 GfxRenderer renderer(display);
@@ -79,24 +81,6 @@ EpdFont bookerly18ItalicFont(&bookerly_18_italic);
 EpdFont bookerly18BoldItalicFont(&bookerly_18_bolditalic);
 EpdFontFamily bookerly18FontFamily(&bookerly18RegularFont, &bookerly18BoldFont, &bookerly18ItalicFont,
                                    &bookerly18BoldItalicFont);
-
-// Lexend is bundled with regular and bold only. Italic falls back to regular,
-// and bold italic falls back to bold to keep the family complete for EPUB styling.
-EpdFont lexend10RegularFont(&lexend_10_regular);
-EpdFont lexend10BoldFont(&lexend_10_bold);
-EpdFontFamily lexend10FontFamily(&lexend10RegularFont, &lexend10BoldFont, &lexend10RegularFont, &lexend10BoldFont);
-EpdFont lexend12RegularFont(&lexend_12_regular);
-EpdFont lexend12BoldFont(&lexend_12_bold);
-EpdFontFamily lexend12FontFamily(&lexend12RegularFont, &lexend12BoldFont, &lexend12RegularFont, &lexend12BoldFont);
-EpdFont lexend14RegularFont(&lexend_14_regular);
-EpdFont lexend14BoldFont(&lexend_14_bold);
-EpdFontFamily lexend14FontFamily(&lexend14RegularFont, &lexend14BoldFont, &lexend14RegularFont, &lexend14BoldFont);
-EpdFont lexend16RegularFont(&lexend_16_regular);
-EpdFont lexend16BoldFont(&lexend_16_bold);
-EpdFontFamily lexend16FontFamily(&lexend16RegularFont, &lexend16BoldFont, &lexend16RegularFont, &lexend16BoldFont);
-EpdFont lexend18RegularFont(&lexend_18_regular);
-EpdFont lexend18BoldFont(&lexend_18_bold);
-EpdFontFamily lexend18FontFamily(&lexend18RegularFont, &lexend18BoldFont, &lexend18RegularFont, &lexend18BoldFont);
 
 EpdFont notosans10RegularFont(&notosans_10_regular);
 EpdFont notosans10BoldFont(&notosans_10_bold);
@@ -314,12 +298,6 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(BOOKERLY_16_FONT_ID, bookerly16FontFamily);
   renderer.insertFont(BOOKERLY_18_FONT_ID, bookerly18FontFamily);
 
-  renderer.insertFont(LEXEND_10_FONT_ID, lexend10FontFamily);
-  renderer.insertFont(LEXEND_12_FONT_ID, lexend12FontFamily);
-  renderer.insertFont(LEXEND_14_FONT_ID, lexend14FontFamily);
-  renderer.insertFont(LEXEND_16_FONT_ID, lexend16FontFamily);
-  renderer.insertFont(LEXEND_18_FONT_ID, lexend18FontFamily);
-
   renderer.insertFont(NOTOSANS_10_FONT_ID, notosans10FontFamily);
   renderer.insertFont(NOTOSANS_12_FONT_ID, notosans12FontFamily);
   renderer.insertFont(NOTOSANS_14_FONT_ID, notosans14FontFamily);
@@ -347,6 +325,7 @@ void setup() {
   gpio.begin();
   powerManager.begin();
   halTiltSensor.begin();
+  halClock.begin();
 
   // Disable Arduino core's NVS auto-persist of Wi-Fi credentials. WifiSelectionActivity
   // always scans first and uses WifiCredentialStore (SD card JSON) as the source of
@@ -500,10 +479,14 @@ void setup() {
     ACHIEVEMENTS.loadFromFile();
   }
 
+  if (halClock.isAvailable() && SETTINGS.clockHasBeenSynced) {
+    TimeUtils::applySystemClockFromRtc(true);
+  }
+
   const bool countUsefulStart = !isSilentReboot && !forceHomeBoot &&
                                 wakeupReason != HalGPIO::WakeupReason::AfterUSBPower &&
                                 wakeupReason != HalGPIO::WakeupReason::AfterFlash;
-  const uint8_t syncDayReminderThreshold = SETTINGS.getSyncDayReminderStartThreshold();
+  const uint8_t syncDayReminderThreshold = SETTINGS.getEffectiveSyncDayReminderStartThreshold();
   BootRecovery::enterStage(BootRecovery::BootStage::RouteDecision);
 
   if (HalSystem::isRebootFromPanic() && !forceHomeBoot) {
@@ -645,6 +628,7 @@ void loop() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
+  TimeUtils::tickSystemClockFromRtc();
   const unsigned long activityDuration = millis() - activityStartTime;
 
   const unsigned long loopDuration = millis() - loopStartTime;

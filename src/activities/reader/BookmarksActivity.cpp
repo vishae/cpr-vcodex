@@ -31,8 +31,13 @@ std::string BookmarksActivity::getItemLabel(const int index) const {
   const auto& bookmark = bookmarks[index];
   char buffer[64];
 
+  if (bookmark.isTextHighlight) {
+    snprintf(buffer, sizeof(buffer), "%d. %s", index + 1, tr(STR_TEXT_HIGHLIGHT_PREFIX));
+    return std::string(buffer) + bookmark.snippet;
+  }
+
   if (!bookmark.snippet.empty()) {
-    snprintf(buffer, sizeof(buffer), "%d. ", index + 1);
+    snprintf(buffer, sizeof(buffer), "%d. %s", index + 1, tr(STR_PAGE_MARK_PREFIX));
     return std::string(buffer) + bookmark.snippet;
   }
 
@@ -68,7 +73,7 @@ void BookmarksActivity::confirmDeleteSelectedBookmark() {
   const auto bookmark = bookmarks[selectorIndex];
   const std::string body = getItemLabel(selectorIndex);
   startActivityForResult(
-      std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE_BOOKMARK), body),
+      std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE_HIGHLIGHT), body),
       [this, bookmark](const ActivityResult& result) {
         if (result.isCancelled) {
           requestUpdate();
@@ -78,8 +83,13 @@ void BookmarksActivity::confirmDeleteSelectedBookmark() {
         if (onDeleteBookmark(bookmark)) {
           bookmarks.erase(std::remove_if(bookmarks.begin(), bookmarks.end(),
                                          [&](const BookmarkStore::Bookmark& current) {
-                                           return current.spineIndex == bookmark.spineIndex &&
-                                                  current.pageNumber == bookmark.pageNumber;
+                                           return current.isTextHighlight == bookmark.isTextHighlight &&
+                                                  current.spineIndex == bookmark.spineIndex &&
+                                                  current.pageNumber == bookmark.pageNumber &&
+                                                  current.endPageNumber == bookmark.endPageNumber &&
+                                                  current.startWordIndex == bookmark.startWordIndex &&
+                                                  current.endWordIndex == bookmark.endWordIndex &&
+                                                  current.snippet == bookmark.snippet;
                                          }),
                           bookmarks.end());
 
@@ -152,7 +162,7 @@ void BookmarksActivity::render(RenderLock&&) {
 
   const int totalItems = static_cast<int>(bookmarks.size());
   if (totalItems == 0) {
-    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_NO_BOOKMARKS), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_NO_HIGHLIGHTS), true, EpdFontFamily::BOLD);
     renderer.displayBuffer();
     return;
   }
@@ -169,7 +179,7 @@ void BookmarksActivity::render(RenderLock&&) {
   const int contentY = hintGutterHeight;
   const int pageItems = getPageItems();
 
-  const char* rawTitle = headerTitle.empty() ? tr(STR_BOOKMARKS) : headerTitle.c_str();
+  const char* rawTitle = headerTitle.empty() ? tr(STR_HIGHLIGHTS) : headerTitle.c_str();
   const std::string title = renderer.truncatedText(UI_12_FONT_ID, rawTitle, contentWidth - 20);
   const int titleX =
       contentX + (contentWidth - renderer.getTextWidth(UI_12_FONT_ID, title.c_str(), EpdFontFamily::BOLD)) / 2;

@@ -47,12 +47,16 @@ const std::string kEmptyString;
 bool KOReaderCredentialStore::saveToFile() const {
   Storage.mkdir("/.crosspoint");
   const bool profilesSaved = JsonSettingsIO::saveKOReader(*this, KOREADER_PROFILES_FILE_JSON);
+  if (!profilesSaved) {
+    return false;
+  }
+
   // Best-effort: keep the legacy mirror in sync too, but don't fail the whole save
   // over it -- cpr-vcodex's own state (the profiles file) is what actually matters here.
   if (!JsonSettingsIO::saveKOReaderLegacyMirror(*this, KOREADER_FILE_JSON)) {
     LOG_ERR("KRS", "Failed to update legacy koreader.json mirror");
   }
-  return profilesSaved;
+  return true;
 }
 
 bool KOReaderCredentialStore::loadFromFile() {
@@ -266,17 +270,25 @@ DocumentMatchMethod KOReaderCredentialStore::getMatchMethod() const {
 }
 
 bool KOReaderCredentialStore::addProfile(const KOReaderProfile& profile) {
-  if (profiles.size() >= MAX_PROFILES) {
+  if (!canAddProfile()) {
     LOG_DBG("KRS", "Cannot add more profiles, limit of %zu reached", MAX_PROFILES);
     return false;
   }
 
+  const int previousActiveIndex = activeIndex;
   profiles.push_back(profile);
   if (activeIndex < 0) {
     activeIndex = static_cast<int>(profiles.size()) - 1;
   }
   LOG_DBG("KRS", "Added profile: %s", profile.name.c_str());
-  return saveToFile();
+  if (saveToFile()) {
+    return true;
+  }
+
+  profiles.pop_back();
+  activeIndex = previousActiveIndex;
+  LOG_ERR("KRS", "Failed to save added profile, restored previous state");
+  return false;
 }
 
 bool KOReaderCredentialStore::updateProfile(size_t index, const KOReaderProfile& profile) {
@@ -284,9 +296,16 @@ bool KOReaderCredentialStore::updateProfile(size_t index, const KOReaderProfile&
     return false;
   }
 
+  KOReaderProfile previousProfile = profiles[index];
   profiles[index] = profile;
   LOG_DBG("KRS", "Updated profile: %s", profile.name.c_str());
-  return saveToFile();
+  if (saveToFile()) {
+    return true;
+  }
+
+  profiles[index] = std::move(previousProfile);
+  LOG_ERR("KRS", "Failed to save updated profile at index %zu, restored previous state", index);
+  return false;
 }
 
 bool KOReaderCredentialStore::removeProfile(size_t index) {
@@ -294,6 +313,8 @@ bool KOReaderCredentialStore::removeProfile(size_t index) {
     return false;
   }
 
+  KOReaderProfile removedProfile = profiles[index];
+  const int previousActiveIndex = activeIndex;
   LOG_DBG("KRS", "Removed profile: %s", profiles[index].name.c_str());
   profiles.erase(profiles.begin() + static_cast<ptrdiff_t>(index));
 
@@ -307,7 +328,14 @@ bool KOReaderCredentialStore::removeProfile(size_t index) {
     }
   }
 
-  return saveToFile();
+  if (saveToFile()) {
+    return true;
+  }
+
+  profiles.insert(profiles.begin() + static_cast<ptrdiff_t>(index), std::move(removedProfile));
+  activeIndex = previousActiveIndex;
+  LOG_ERR("KRS", "Failed to save profile removal at index %zu, restored previous state", index);
+  return false;
 }
 
 const KOReaderProfile* KOReaderCredentialStore::getProfile(size_t index) const {
@@ -321,7 +349,14 @@ bool KOReaderCredentialStore::setActiveIndex(size_t index) {
   if (index >= profiles.size()) {
     return false;
   }
+  const int previousActiveIndex = activeIndex;
   activeIndex = static_cast<int>(index);
   LOG_DBG("KRS", "Active profile set to: %s", profiles[index].name.c_str());
-  return saveToFile();
+  if (saveToFile()) {
+    return true;
+  }
+
+  activeIndex = previousActiveIndex;
+  LOG_ERR("KRS", "Failed to save active profile, restored previous selection");
+  return false;
 }

@@ -25,6 +25,7 @@ enum class SettingAction {
   SdFirmwareUpdate,
   Language,
   SyncDay,
+  ClockSync,
   TimeZone,
   ReadingStats,
   ResetReadingStats,
@@ -187,6 +188,7 @@ class SettingsActivity final : public Activity {
   std::vector<SettingRef> controlsSettings;
   std::vector<SettingRef> systemSettings;
   std::vector<SettingRef> appSettings;
+  std::vector<SettingInfo> appSettingOverrides;
   const std::vector<SettingRef>* currentSettings = nullptr;
   bool settingsListsBuilt = false;
 
@@ -203,6 +205,7 @@ class SettingsActivity final : public Activity {
   void showTransientPopup(const char* message, int progress = -1, unsigned long delayMs = 0);
   void toggleCurrentSetting();
   void buildSettingsLists();
+  void rebuildAppSettingsList();
 
  public:
   explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)

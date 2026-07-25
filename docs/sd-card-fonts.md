@@ -1,8 +1,8 @@
 # SD Card Fonts
 
 CPR-vCodex supports loading additional fonts from the SD card. Common
-downloadable families are provided by CrossPoint, while the CPR-vCodex source is
-reserved for vCodex-only additions such as ChareInk.
+downloadable families are provided by CrossPoint, while the CPR-vCodex source
+provides vCodex-specific additions such as ChareInk and Lexend.
 
 ## Installing Fonts
 
@@ -24,7 +24,7 @@ There are three ways to install fonts.
 
 ### Option 3: Manual SD card copy
 
-For the fastest full vCodex-only install, download
+For the fastest full CPR-vCodex font install, download
 [`all-fonts.zip`](https://github.com/franssjz/cpr-vcodex/releases/download/sd-fonts-m1-b4/all-fonts.zip)
 and extract it into the root of the microSD card. It creates the ready-to-use
 `/fonts/<family>/*.cpfont` tree.
@@ -51,6 +51,12 @@ SD Card Root/
 |       |-- ChareInk_16.cpfont
 |       `-- ChareInk_18.cpfont
 `-- fonts/                      Visible root (equally valid)
+    |-- Lexend/
+    |   |-- Lexend_10.cpfont
+    |   |-- Lexend_12.cpfont
+    |   |-- Lexend_14.cpfont
+    |   |-- Lexend_16.cpfont
+    |   `-- Lexend_18.cpfont
     `-- MyFont/
         |-- MyFont_12.cpfont
         `-- ...
@@ -65,7 +71,7 @@ The current list of CPR-vCodex-only pre-built fonts is maintained in
 `lib/EpdFont/scripts/sd-fonts.yaml` and published as CPR-vCodex release assets:
 
 - Stable device manifest: https://github.com/franssjz/cpr-vcodex/releases/tag/sd-fonts-m1-b4
-- Manual vCodex-only package: https://github.com/franssjz/cpr-vcodex/releases/download/sd-fonts-m1-b4/all-fonts.zip
+- Manual CPR-vCodex font package: https://github.com/franssjz/cpr-vcodex/releases/download/sd-fonts-m1-b4/all-fonts.zip
 - Device manifest: https://github.com/franssjz/cpr-vcodex/releases/download/sd-fonts-m1-b4/fonts.json
 
 The `sd-fonts-m<META>-b<BIN>` tag is tied to the manifest schema and `.cpfont`

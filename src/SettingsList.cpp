@@ -1,5 +1,6 @@
 #include "SettingsList.h"
 
+#include <HalClock.h>
 #include <HalTiltSensor.h>
 #include <I18n.h>
 
@@ -44,8 +45,7 @@ const std::vector<SettingInfo>& getSettingsList() {
                             StrId::STR_CAT_DISPLAY),
         // --- Reader ---
         SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily,
-                          {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_LEXEND}, "fontFamily",
-                          StrId::STR_CAT_READER),
+                          {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS}, "fontFamily", StrId::STR_CAT_READER),
         SettingInfo::Enum(
             StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
             {StrId::STR_X_SMALL, StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE}, "fontSize",
@@ -168,7 +168,7 @@ const std::vector<SettingInfo>& getSettingsList() {
         SettingInfo::Enum(StrId::STR_MENU_RECENT_BOOKS, &CrossPointSettings::recentBooksShortcut,
                           {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "recentBooksShortcut",
                           StrId::STR_SHORTCUTS_SECTION),
-        SettingInfo::Enum(StrId::STR_BOOKMARKS, &CrossPointSettings::bookmarksShortcut,
+        SettingInfo::Enum(StrId::STR_HIGHLIGHTS, &CrossPointSettings::bookmarksShortcut,
                           {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "bookmarksShortcut",
                           StrId::STR_SHORTCUTS_SECTION),
         SettingInfo::Enum(StrId::STR_FAVORITES, &CrossPointSettings::favoritesShortcut,
@@ -242,6 +242,18 @@ const std::vector<SettingInfo>& getSettingsList() {
                           StrId::STR_CUSTOMISE_STATUS_BAR),
         SettingInfo::Toggle(StrId::STR_BATTERY, &CrossPointSettings::statusBarBattery, "statusBarBattery",
                             StrId::STR_CUSTOMISE_STATUS_BAR),
+        // Clock entries (status bar uses the shared Sync Day timezone preset).
+        SettingInfo::Enum(StrId::STR_CLOCK, &CrossPointSettings::statusBarClock,
+                          {StrId::STR_HIDE, StrId::STR_DIR_RIGHT, StrId::STR_DIR_LEFT}, "statusBarClock",
+                          StrId::STR_CUSTOMISE_STATUS_BAR),
+        SettingInfo::Enum(StrId::STR_CLOCK_FORMAT, &CrossPointSettings::clockFormat,
+                          {StrId::STR_CLOCK_FORMAT_24H, StrId::STR_CLOCK_FORMAT_12H}, "clockFormat",
+                          StrId::STR_CUSTOMISE_STATUS_BAR),
+        // Persistence flag for NTP debounce. Resetting from the web UI forces a re-sync
+        // on next WiFi connect, which is useful when crossing time zones.
+        SettingInfo::Toggle(StrId::STR_CLOCK_SYNCED, &CrossPointSettings::clockHasBeenSynced, "clockHasBeenSynced",
+                            StrId::STR_CUSTOMISE_STATUS_BAR),
+
     };
 
     if (!halTiltSensor.isAvailable()) {

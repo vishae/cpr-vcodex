@@ -69,6 +69,13 @@ class CrossPointSettings {
     XTC_STATUS_BAR_TOP = 2,
     XTC_STATUS_BAR_MODE_COUNT
   };
+  // STATUS_BAR_CLOCK_RIGHT = 1 matches the legacy boolean "show clock" value.
+  enum STATUS_BAR_CLOCK {
+    STATUS_BAR_CLOCK_HIDE = 0,
+    STATUS_BAR_CLOCK_RIGHT = 1,
+    STATUS_BAR_CLOCK_LEFT = 2,
+    STATUS_BAR_CLOCK_COUNT
+  };
 
   enum ORIENTATION {
     PORTRAIT = 0,       // 480x800 logical coordinates (current default)
@@ -104,7 +111,7 @@ class CrossPointSettings {
   enum SIDE_BUTTON_LAYOUT { PREV_NEXT = 0, NEXT_PREV = 1, SIDE_BUTTON_LAYOUT_COUNT };
 
   // Font family options
-  enum FONT_FAMILY { BOOKERLY = 0, NOTOSANS = 1, LEXEND = 2, FONT_FAMILY_COUNT };
+  enum FONT_FAMILY { BOOKERLY = 0, NOTOSANS = 1, FONT_FAMILY_COUNT };
   static constexpr uint8_t BUILTIN_FONT_COUNT = FONT_FAMILY_COUNT;
   // Font size options
   enum FONT_SIZE { X_SMALL = 0, SMALL = 1, MEDIUM = 2, LARGE = 3, EXTRA_LARGE = 4, FONT_SIZE_COUNT };
@@ -184,6 +191,13 @@ class CrossPointSettings {
   // UI Theme
   enum UI_THEME { LYRA = 0, LYRA_CUSTOM = 1, LYRA_CAROUSEL = 2, UI_THEME_COUNT };
   enum DATE_FORMAT { DATE_DD_MM_YYYY = 0, DATE_MM_DD_YYYY = 1, DATE_YYYY_MM_DD = 2, DATE_FORMAT_COUNT };
+  enum DISPLAY_HEADER {
+    DISPLAY_HEADER_OFF = 0,
+    DISPLAY_HEADER_DATE_ONLY = 1,
+    DISPLAY_HEADER_TIME_ONLY = 2,
+    DISPLAY_HEADER_BOTH = 3,
+    DISPLAY_HEADER_MODE_COUNT = 4,
+  };
   enum SYNC_DAY_WIFI_CHOICE { SYNC_DAY_WIFI_AUTO = 0, SYNC_DAY_WIFI_MANUAL = 1, SYNC_DAY_WIFI_CHOICE_COUNT };
   enum DAILY_GOAL_TARGET {
     DAILY_GOAL_15_MIN = 0,
@@ -254,6 +268,15 @@ class CrossPointSettings {
   uint8_t statusBarTitle = CHAPTER_TITLE;
   uint8_t statusBarBattery = 1;
   uint8_t xtcStatusBarMode = XTC_STATUS_BAR_HIDE;
+  // Clock display in status bar (X3 only, requires DS3231 RTC)
+  uint8_t statusBarClock = STATUS_BAR_CLOCK_HIDE;
+  // Legacy migration field for pre-unified timezone clock offset. No longer shown in UI.
+  uint8_t clockUtcOffsetQ = 48;
+  // Clock display format: 0 = 24-hour, 1 = 12-hour
+  uint8_t clockFormat = 0;
+  // Set once an NTP sync succeeds. Used to skip re-syncing on every WiFi connect.
+  // Resetting to 0 (e.g. via the web UI) forces a re-sync on next WiFi connect.
+  uint8_t clockHasBeenSynced = 0;
   // Text rendering settings
   uint8_t extraParagraphSpacing = 1;
   uint8_t forceParagraphIndents = 0;
@@ -427,6 +450,13 @@ class CrossPointSettings {
   uint64_t getDailyGoalMs() const;
   uint8_t getReadingStatsAutoBackupIntervalDays() const;
   uint8_t getSyncDayReminderStartThreshold() const;
+  uint8_t getEffectiveSyncDayReminderStartThreshold() const;
+  bool isHardwareRtcAutoDayClockActive() const;
+  bool shouldShowHeaderDate() const;
+  bool shouldShowHeaderTime() const;
+  // Clamps corrupt displayDay values on load. Does not downgrade time/both modes when the RTC
+  // is temporarily unavailable; shouldShowHeaderDate/Time gate runtime display instead.
+  void normalizeDisplayDay();
   int getRefreshFrequency() const;
   bool getForcedReaderRefreshMode(HalDisplay::RefreshMode& mode) const;
 };

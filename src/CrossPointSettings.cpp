@@ -1,5 +1,6 @@
 #include "CrossPointSettings.h"
 
+#include <HalClock.h>
 #include <HalStorage.h>
 #include <JsonSettingsIO.h>
 #include <Logging.h>
@@ -27,6 +28,8 @@ constexpr char SETTINGS_FILE_BIN[] = "/.crosspoint/settings.bin";
 constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
 constexpr char SETTINGS_FILE_BAK[] = "/.crosspoint/settings.bin.bak";
 constexpr uint8_t LEGACY_FONT_SIZE_COUNT = 4;
+constexpr uint8_t LEGACY_LEXEND_FONT_FAMILY = 2;
+constexpr char LEXEND_SD_FAMILY_NAME[] = "Lexend";
 
 uint8_t migrateLegacyUiTheme(const uint8_t legacyUiTheme) {
   switch (legacyUiTheme) {
@@ -174,7 +177,17 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, sideButtonLayout, SIDE_BUTTON_LAYOUT_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, fontFamily, FONT_FAMILY_COUNT);
+    {
+      uint8_t storedFontFamily = BOOKERLY;
+      serialization::readPod(inputFile, storedFontFamily);
+      if (storedFontFamily == LEGACY_LEXEND_FONT_FAMILY) {
+        fontFamily = BOOKERLY;
+        strncpy(sdFontFamilyName, LEXEND_SD_FAMILY_NAME, sizeof(sdFontFamilyName) - 1);
+        sdFontFamilyName[sizeof(sdFontFamilyName) - 1] = '\0';
+      } else if (storedFontFamily < FONT_FAMILY_COUNT) {
+        fontFamily = storedFontFamily;
+      }
+    }
     if (++settingsRead >= fileSettingsCount) break;
     {
       uint8_t legacyFontSize = static_cast<uint8_t>(MEDIUM - 1);
@@ -263,6 +276,18 @@ bool CrossPointSettings::loadFromBinaryFile() {
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
+  if (strcmp(sdFontFamilyName, LEXEND_SD_FAMILY_NAME) == 0) {
+    switch (lineSpacing) {
+      case TIGHT:
+        return 0.90f;
+      case NORMAL:
+      default:
+        return 0.95f;
+      case WIDE:
+        return 1.0f;
+    }
+  }
+
   switch (fontFamily) {
     case BOOKERLY:
     default:
@@ -276,16 +301,6 @@ float CrossPointSettings::getReaderLineCompression() const {
           return 1.1f;
       }
     case NOTOSANS:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 0.95f;
-        case WIDE:
-          return 1.0f;
-      }
-    case LEXEND:
       switch (lineSpacing) {
         case TIGHT:
           return 0.90f;
@@ -365,6 +380,43 @@ uint8_t CrossPointSettings::getSyncDayReminderStartThreshold() const {
   }
 }
 
+bool CrossPointSettings::isHardwareRtcAutoDayClockActive() const {
+  return halClock.isAvailable() && statusBarClock != STATUS_BAR_CLOCK_HIDE;
+}
+
+bool CrossPointSettings::shouldShowHeaderDate() const {
+  if (!isHardwareRtcAutoDayClockActive()) {
+    // Legacy X4 boolean mode, or X3 while the RTC/status-bar clock is inactive: show the
+    // reading-stats date only for explicit date-on. Time/both modes stay stored but hidden
+    // until isHardwareRtcAutoDayClockActive() becomes true again.
+    if (displayDay >= DISPLAY_HEADER_TIME_ONLY) {
+      return false;
+    }
+    return displayDay != DISPLAY_HEADER_OFF;
+  }
+  return displayDay == DISPLAY_HEADER_DATE_ONLY || displayDay == DISPLAY_HEADER_BOTH;
+}
+
+bool CrossPointSettings::shouldShowHeaderTime() const {
+  if (!isHardwareRtcAutoDayClockActive()) {
+    return false;
+  }
+  return displayDay == DISPLAY_HEADER_TIME_ONLY || displayDay == DISPLAY_HEADER_BOTH;
+}
+
+void CrossPointSettings::normalizeDisplayDay() {
+  if (displayDay >= DISPLAY_HEADER_MODE_COUNT) {
+    displayDay = DISPLAY_HEADER_DATE_ONLY;
+  }
+}
+
+uint8_t CrossPointSettings::getEffectiveSyncDayReminderStartThreshold() const {
+  if (isHardwareRtcAutoDayClockActive()) {
+    return 0;
+  }
+  return getSyncDayReminderStartThreshold();
+}
+
 int CrossPointSettings::getRefreshFrequency() const {
   switch (refreshFrequency) {
     case REFRESH_1:
@@ -435,20 +487,6 @@ int CrossPointSettings::getReaderFontId() const {
           return NOTOSANS_16_FONT_ID;
         case EXTRA_LARGE:
           return NOTOSANS_18_FONT_ID;
-      }
-    case LEXEND:
-      switch (fontSize) {
-        case X_SMALL:
-          return LEXEND_10_FONT_ID;
-        case SMALL:
-          return LEXEND_12_FONT_ID;
-        case MEDIUM:
-        default:
-          return LEXEND_14_FONT_ID;
-        case LARGE:
-          return LEXEND_16_FONT_ID;
-        case EXTRA_LARGE:
-          return LEXEND_18_FONT_ID;
       }
   }
 }

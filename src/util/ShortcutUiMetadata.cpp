@@ -6,6 +6,7 @@
 #include <algorithm>
 
 #include "AchievementsStore.h"
+#include "CrossPointSettings.h"
 #include "FavoritesStore.h"
 #include "FlashcardsStore.h"
 #include "OpdsServerStore.h"
@@ -89,11 +90,21 @@ std::string getFileTransferShortcutSubtitle() {
 }
 }  // namespace
 
+std::string ShortcutUiMetadata::getName(const ShortcutDefinition& definition) {
+  if (definition.id == ShortcutId::SyncDay && SETTINGS.isHardwareRtcAutoDayClockActive()) {
+    return I18N.get(StrId::STR_CLOCK_SYNC_NOW);
+  }
+  return I18N.get(definition.nameId);
+}
+
 std::string ShortcutUiMetadata::getSubtitle(const ShortcutDefinition& definition) {
   switch (definition.id) {
     case ShortcutId::ReadingStats:
       return getStatsShortcutSubtitle();
     case ShortcutId::SyncDay:
+      if (SETTINGS.isHardwareRtcAutoDayClockActive()) {
+        return SETTINGS.clockHasBeenSynced ? std::string(tr(STR_CLOCK_SYNCED)) : std::string(tr(STR_NOT_SET));
+      }
       return getSyncDayShortcutSubtitle();
     case ShortcutId::Achievements:
       return getAchievementsShortcutSubtitle();
