@@ -15,6 +15,7 @@
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
+#include "home/MosaicBrowserActivity.h"
 #include "home/RecentBooksActivity.h"
 #include "network/CrossPointWebServerActivity.h"
 #include "reader/KOReaderSyncActivity.h"
@@ -236,6 +237,10 @@ void ActivityManager::goToFileBrowser(std::string path) {
 
 void ActivityManager::goToRecentBooks() {
   replaceActivity(std::make_unique<RecentBooksActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToCoverGrid() {
+  replaceActivity(std::make_unique<MosaicBrowserActivity>(renderer, mappedInput));
 }
 
 void ActivityManager::goToBrowser() {

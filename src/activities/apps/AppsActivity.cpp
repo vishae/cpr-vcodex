@@ -184,6 +184,9 @@ void AppsActivity::openSelectedApp() {
     case ShortcutId::RecentBooks:
       activityManager.goToRecentBooks();
       return;
+    case ShortcutId::CoverGrid:
+      activityManager.goToCoverGrid();
+      return;
     case ShortcutId::Bookmarks:
       activity = std::make_unique<BookmarksAppActivity>(renderer, mappedInput);
       break;
