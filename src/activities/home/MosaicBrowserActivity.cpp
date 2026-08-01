@@ -1,5 +1,6 @@
 #include "MosaicBrowserActivity.h"
 
+#include <Arduino.h>
 #include <Bitmap.h>
 #include <Epub.h>
 #include <FsHelpers.h>
@@ -17,7 +18,8 @@
 
 namespace {
 constexpr int kCornerRadius = 6;
-constexpr int kSelectPad = 3;      // border inset around the selected cover
+constexpr int kSelectPad = 3;                    // border inset around the selected cover
+constexpr unsigned long kGenerateIdleMs = 250;   // wait this long after input before indexing a cover
 constexpr char kCacheDir[] = "/.crosspoint";
 
 std::string fileStem(const std::string& path) {
@@ -117,54 +119,44 @@ int MosaicBrowserActivity::pageStartFor(size_t index) const {
   return static_cast<int>(index / BOOKS_PER_PAGE) * BOOKS_PER_PAGE;
 }
 
-void MosaicBrowserActivity::loadPageCovers(int pageStart) {
+int MosaicBrowserActivity::visiblePagePending() const {
+  const int pageStart = pageStartFor(selectorIndex);
   const int pageEnd = std::min(pageStart + BOOKS_PER_PAGE, static_cast<int>(books.size()));
-
-  bool needWork = false;
   for (int i = pageStart; i < pageEnd; ++i) {
-    if (!books[i].loaded) {
-      needWork = true;
-      break;
-    }
+    if (!books[i].loaded) return i;
   }
-  // Show feedback: metadata parsing + thumbnail generation for a fresh page can
-  // take a few seconds. The physical eink otherwise shows a stale frame.
-  if (needWork) {
-    renderer.clearScreen();
-    renderer.drawCenteredText(UI_10_FONT_ID, renderer.getScreenHeight() / 2, tr(STR_LOADING_COVERS));
-    renderer.displayBuffer();
-  }
+  return -1;
+}
 
-  for (int i = pageStart; i < pageEnd; ++i) {
-    GridBook& book = books[i];
-    if (book.loaded) continue;
-    book.loaded = true;
+// Build one book's metadata cache + cover thumbnail. Blocking (single core),
+// so it's only ever called for one book per idle loop tick.
+void MosaicBrowserActivity::indexBook(int i) {
+  GridBook& book = books[i];
+  book.loaded = true;
 
-    if (FsHelpers::hasEpubExtension(book.path)) {
-      Epub epub(book.path, kCacheDir);
-      // buildIfMissing = true so never-opened books get their metadata cache
-      // built here; without it, thumbnail generation silently no-ops.
-      if (epub.load(true, true)) {
-        const std::string& title = epub.getTitle();
-        if (!title.empty()) book.label = title;
-        book.coverBmpPath = epub.getThumbBmpPath();
-        const std::string thumb = UITheme::getCoverThumbPath(book.coverBmpPath, coverW, coverH);
-        if (!Storage.exists(thumb.c_str())) {
-          epub.generateThumbBmp(coverW, coverH);
-        }
+  if (FsHelpers::hasEpubExtension(book.path)) {
+    Epub epub(book.path, kCacheDir);
+    // buildIfMissing = true so never-opened books get their metadata cache
+    // built here; without it, thumbnail generation silently no-ops.
+    if (epub.load(true, true)) {
+      const std::string& title = epub.getTitle();
+      if (!title.empty()) book.label = title;
+      book.coverBmpPath = epub.getThumbBmpPath();
+      const std::string thumb = UITheme::getCoverThumbPath(book.coverBmpPath, coverW, coverH);
+      if (!Storage.exists(thumb.c_str())) {
+        epub.generateThumbBmp(coverW, coverH);
       }
     }
-    // .xtc covers are handled by a later step; they fall back to the placeholder
-    // (still labelled by filename).
   }
-  loadedPageStart = pageStart;
+  // .xtc covers are handled by a later step; they keep the placeholder (still
+  // labelled by filename).
 }
 
 void MosaicBrowserActivity::onEnter() {
   Activity::onEnter();
   computeLayout();
   selectorIndex = 0;
-  loadedPageStart = -1;
+  lastInputMs = millis();
   loadBooks();
   requestUpdate();
 }
@@ -174,51 +166,71 @@ void MosaicBrowserActivity::onExit() {
   books.clear();
 }
 
+bool MosaicBrowserActivity::skipLoopDelay() {
+  // Keep the loop running at full speed while the visible page still has covers
+  // to index, so generation proceeds tick by tick between input checks.
+  return visiblePagePending() >= 0;
+}
+
 void MosaicBrowserActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    lastInputMs = millis();
     if (!books.empty() && selectorIndex < books.size()) {
       onSelectBook(books[selectorIndex].path);
     }
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    lastInputMs = millis();
     onGoHome();
     return;
   }
 
   const int listSize = static_cast<int>(books.size());
-  if (listSize == 0) return;
+  bool navigated = false;
+  if (listSize > 0) {
+    buttonNavigator.onNextRelease([this, listSize, &navigated] {
+      selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
+      navigated = true;
+    });
+    buttonNavigator.onPreviousRelease([this, listSize, &navigated] {
+      selectorIndex = ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize);
+      navigated = true;
+    });
+    // Continuous press jumps a full row for fast traversal.
+    buttonNavigator.onNextContinuous([this, listSize, &navigated] {
+      selectorIndex = ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, GRID_COLS);
+      navigated = true;
+    });
+    buttonNavigator.onPreviousContinuous([this, listSize, &navigated] {
+      selectorIndex = ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, GRID_COLS);
+      navigated = true;
+    });
+  }
+  if (navigated) {
+    lastInputMs = millis();
+    requestUpdate();
+    return;
+  }
 
-  buttonNavigator.onNextRelease([this, listSize] {
-    selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
+  // Idle-gated incremental cover indexing for the visible page: only kick off a
+  // (blocking) generation once the user has paused, so active scrolling stays
+  // responsive.
+  const int next = visiblePagePending();
+  if (next >= 0 && (millis() - lastInputMs) >= kGenerateIdleMs) {
+    indexBook(next);
     requestUpdate();
-  });
-  buttonNavigator.onPreviousRelease([this, listSize] {
-    selectorIndex = ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize);
-    requestUpdate();
-  });
-  // Continuous press jumps a full row for fast traversal.
-  buttonNavigator.onNextContinuous([this, listSize] {
-    selectorIndex = ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, GRID_COLS);
-    requestUpdate();
-  });
-  buttonNavigator.onPreviousContinuous([this, listSize] {
-    selectorIndex = ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, GRID_COLS);
-    requestUpdate();
-  });
+  }
 }
 
 void MosaicBrowserActivity::render(RenderLock&&) {
+  renderer.clearScreen();
+
   const auto& m = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
 
   const int total = static_cast<int>(books.size());
   const int pageStart = pageStartFor(selectorIndex);
-  if (loadedPageStart != pageStart) {
-    loadPageCovers(pageStart);  // may draw a loading frame
-  }
-
-  renderer.clearScreen();
 
   // Header (with page indicator when there's more than one page).
   std::string title = tr(STR_COVER_GRID);

@@ -9,14 +9,17 @@
 
 // KOReader-style mosaic library browser: a 3x3 grid of book cover thumbnails
 // scanned (recursively) from a library folder (default /books), paged when
-// there are more than 9 books. On-demand thumbnail generation, reusing the
-// firmware's existing cover pipeline (Epub::generateThumbBmp /
-// UITheme::getCoverThumbPath). Each cover shows the book title beneath it.
+// there are more than 9 books, with the book title under each cover.
 //
-// Added alongside the plain-list FileBrowserActivity (PID-26028, DEC-002) and
-// registered as its own reorderable Apps shortcut (DEC-004). Grouping/sorting
-// (CGV-002/003) and the library-folder setting + missing-folder popup (CGV-005)
-// come later; recursive scan is CGV-004.
+// Cover thumbnails are generated incrementally in loop() — one per idle tick,
+// only for the currently visible page — so the grid appears instantly with
+// placeholders and stays navigable while covers fill in, instead of blocking on
+// a "generating" screen. (First-time generation is the one-time metadata-cache
+// build per never-opened book, shared with the reader; it's cached afterwards.)
+//
+// Added alongside FileBrowserActivity (PID-26028, DEC-002), registered as a
+// reorderable Apps shortcut (DEC-004). Recursive scan is CGV-004. Grouping/sort
+// (CGV-002/003) and the library-folder setting (CGV-005) come later.
 class MosaicBrowserActivity final : public Activity {
  public:
   static constexpr int GRID_COLS = 3;
@@ -27,13 +30,13 @@ class MosaicBrowserActivity final : public Activity {
   struct GridBook {
     std::string path;
     std::string label;          // filename stem at scan time, upgraded to the title once metadata loads
-    std::string coverBmpPath;   // base thumb path, resolved when the page loads
+    std::string coverBmpPath;   // base thumb path, resolved when the book is indexed
     bool loaded = false;        // metadata + thumb attempted for this book
   };
 
   ButtonNavigator buttonNavigator;
   size_t selectorIndex = 0;
-  int loadedPageStart = -1;
+  unsigned long lastInputMs = 0;  // for the idle gate before generating a cover
   std::vector<GridBook> books;
   std::string libraryPath = "/books";
 
@@ -49,8 +52,9 @@ class MosaicBrowserActivity final : public Activity {
 
   void computeLayout();
   void loadBooks();
-  void loadPageCovers(int pageStart);
   int pageStartFor(size_t index) const;
+  int visiblePagePending() const;  // index of the next un-indexed book on the visible page, or -1
+  void indexBook(int i);
 
  public:
   explicit MosaicBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -61,4 +65,5 @@ class MosaicBrowserActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool skipLoopDelay() override;
 };
