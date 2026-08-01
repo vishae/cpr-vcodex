@@ -137,8 +137,7 @@ void MosaicBrowserActivity::indexBook(int i) {
   if (FsHelpers::hasEpubExtension(book.path)) {
     Epub epub(book.path, kCacheDir);
     // Metadata-only load: parses just the OPF (title + cover) and skips the
-    // expensive spine-size build, so indexing a book for the grid is seconds
-    // not ~13 s. Reuses the full cache if the book was already opened/indexed.
+    // expensive spine-size build. Reuses the full cache if already indexed.
     if (epub.loadMetadataOnly()) {
       const std::string& title = epub.getTitle();
       if (!title.empty()) book.label = title;
