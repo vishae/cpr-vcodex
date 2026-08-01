@@ -87,6 +87,7 @@ class ActivityManager {
   void goToApps();
   void goToFileBrowser(std::string path = {});
   void goToRecentBooks();
+  void goToCoverGrid();
   void goToBrowser();
   void goToReader(std::string path);
   void goToKOReaderSync();

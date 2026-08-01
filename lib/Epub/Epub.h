@@ -46,6 +46,10 @@ class Epub {
   ~Epub() = default;
   std::string& getBasePath() { return contentBasePath; }
   bool load(bool buildIfMissing = true, bool skipLoadingCss = false);
+  // Lightweight load for cover/title only: reuses the full cache if present,
+  // otherwise parses just the OPF (no spine-size build, no TOC, no disk cache).
+  // Enough for getTitle()/getAuthor()/generateThumbBmp(); NOT for reading.
+  bool loadMetadataOnly();
   bool clearCache() const;
   void setupCacheDir() const;
   const std::string& getCachePath() const;

@@ -1011,6 +1011,9 @@ void HomeActivity::loop() {
         case ShortcutId::RecentBooks:
           activityManager.goToRecentBooks();
           break;
+        case ShortcutId::CoverGrid:
+          activityManager.goToCoverGrid();
+          break;
         case ShortcutId::Bookmarks:
           startActivityForResult(std::make_unique<BookmarksAppActivity>(renderer, mappedInput),
                                  [this](const ActivityResult&) { requestFreshHomeRender(true); });

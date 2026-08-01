@@ -104,6 +104,16 @@ class BookMetadataCache {
 
   // Reading phase (read mode)
   bool load();
+
+  // Populate only the core metadata (title/author/cover/etc.) in memory and mark
+  // the cache loaded, without the spine/TOC cache. Used for the cover-grid's
+  // lightweight metadata-only load, where only the cover + title are needed and
+  // the expensive spine-size build is skipped. No disk cache is written, so the
+  // reader still builds the full cache on first open.
+  void populateMetadataOnly(const BookMetadata& metadata) {
+    coreMetadata = metadata;
+    loaded = true;
+  }
   SpineEntry getSpineEntry(int index);
   TocEntry getTocEntry(int index);
   int getSpineCount() const { return spineCount; }

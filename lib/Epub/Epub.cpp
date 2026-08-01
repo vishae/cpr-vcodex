@@ -515,6 +515,28 @@ const std::string& Epub::getLanguage() const {
   return bookMetadataCache->coreMetadata.language;
 }
 
+bool Epub::loadMetadataOnly() {
+  bookMetadataCache.reset(new BookMetadataCache(cachePath));
+  cssParser.reset(new CssParser(cachePath));
+
+  // Fast path: a full cache already on disk (book previously indexed/opened).
+  if (bookMetadataCache->load()) {
+    return true;
+  }
+
+  // Otherwise parse just the OPF into core metadata (title/author/cover). No
+  // spine-size build and no TOC pass — but we still create the cache directory
+  // so thumbnail generation can write its temp cover + the thumb BMP into it.
+  setupCacheDir();
+  BookMetadataCache::BookMetadata metadata;
+  if (!parseContentOpf(metadata, /*writeSpineEntries=*/false)) {
+    LOG_ERR("EBP", "loadMetadataOnly: could not parse content.opf for %s", filepath.c_str());
+    return false;
+  }
+  bookMetadataCache->populateMetadataOnly(metadata);
+  return true;
+}
+
 std::string Epub::getCoverBmpPath(bool cropped) const {
   const auto coverFileName = std::string("cover") + (cropped ? "_crop" : "");
   return cachePath + "/" + coverFileName + ".bmp";

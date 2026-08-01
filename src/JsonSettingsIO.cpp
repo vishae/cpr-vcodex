@@ -655,6 +655,10 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
       clamp(doc["opdsBrowserShortcut"] | s.opdsBrowserShortcut, shortcutLocationCount, s.opdsBrowserShortcut);
   s.opdsBrowserShortcutOrder = clamp(doc["opdsBrowserShortcutOrder"] | s.opdsBrowserShortcutOrder, shortcutOrderCount,
                                      s.opdsBrowserShortcutOrder);
+  s.coverGridShortcut =
+      clamp(doc["coverGridShortcut"] | s.coverGridShortcut, shortcutLocationCount, s.coverGridShortcut);
+  s.coverGridShortcutOrder = clamp(doc["coverGridShortcutOrder"] | s.coverGridShortcutOrder, shortcutOrderCount,
+                                   s.coverGridShortcutOrder);
 
   s.browseFilesShortcutVisible = clamp(doc["browseFilesShortcutVisible"] | s.browseFilesShortcutVisible,
                                        static_cast<uint8_t>(2), s.browseFilesShortcutVisible);
@@ -694,6 +698,8 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
       clamp(doc["sleepShortcutVisible"] | s.sleepShortcutVisible, static_cast<uint8_t>(2), s.sleepShortcutVisible);
   s.opdsBrowserShortcutVisible = clamp(doc["opdsBrowserShortcutVisible"] | s.opdsBrowserShortcutVisible,
                                        static_cast<uint8_t>(2), s.opdsBrowserShortcutVisible);
+  s.coverGridShortcutVisible = clamp(doc["coverGridShortcutVisible"] | s.coverGridShortcutVisible,
+                                     static_cast<uint8_t>(2), s.coverGridShortcutVisible);
 
   migrateLegacyStatsShortcut(s, doc, needsResave);
   normalizeShortcutOrderSettings(s);
@@ -950,6 +956,8 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["sleepShortcutOrder"] = s.sleepShortcutOrder;
   doc["opdsBrowserShortcut"] = s.opdsBrowserShortcut;
   doc["opdsBrowserShortcutOrder"] = s.opdsBrowserShortcutOrder;
+  doc["coverGridShortcut"] = s.coverGridShortcut;
+  doc["coverGridShortcutOrder"] = s.coverGridShortcutOrder;
   doc["browseFilesShortcutVisible"] = s.browseFilesShortcutVisible;
   doc["syncDayShortcutVisible"] = s.syncDayShortcutVisible;
   doc["settingsShortcutVisible"] = s.settingsShortcutVisible;
@@ -968,6 +976,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["screenCleanShortcutVisible"] = s.screenCleanShortcutVisible;
   doc["sleepShortcutVisible"] = s.sleepShortcutVisible;
   doc["opdsBrowserShortcutVisible"] = s.opdsBrowserShortcutVisible;
+  doc["coverGridShortcutVisible"] = s.coverGridShortcutVisible;
 
   return saveJsonDocumentToFile("CPS", path, doc);
 }
@@ -1173,6 +1182,10 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       clamp(doc["opdsBrowserShortcut"] | s.opdsBrowserShortcut, shortcutLocationCount, s.opdsBrowserShortcut);
   s.opdsBrowserShortcutOrder = clamp(doc["opdsBrowserShortcutOrder"] | s.opdsBrowserShortcutOrder, shortcutOrderCount,
                                      s.opdsBrowserShortcutOrder);
+  s.coverGridShortcut =
+      clamp(doc["coverGridShortcut"] | s.coverGridShortcut, shortcutLocationCount, s.coverGridShortcut);
+  s.coverGridShortcutOrder = clamp(doc["coverGridShortcutOrder"] | s.coverGridShortcutOrder, shortcutOrderCount,
+                                   s.coverGridShortcutOrder);
 
   s.browseFilesShortcutVisible = clamp(doc["browseFilesShortcutVisible"] | s.browseFilesShortcutVisible,
                                        static_cast<uint8_t>(2), s.browseFilesShortcutVisible);
@@ -1210,6 +1223,8 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       clamp(doc["sleepShortcutVisible"] | s.sleepShortcutVisible, static_cast<uint8_t>(2), s.sleepShortcutVisible);
   s.opdsBrowserShortcutVisible = clamp(doc["opdsBrowserShortcutVisible"] | s.opdsBrowserShortcutVisible,
                                        static_cast<uint8_t>(2), s.opdsBrowserShortcutVisible);
+  s.coverGridShortcutVisible = clamp(doc["coverGridShortcutVisible"] | s.coverGridShortcutVisible,
+                                     static_cast<uint8_t>(2), s.coverGridShortcutVisible);
 
   normalizeShortcutOrderSettings(s);
   CrossPointSettings::validateFrontButtonMapping(s);
