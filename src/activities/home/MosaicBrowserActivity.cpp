@@ -189,23 +189,38 @@ void MosaicBrowserActivity::loop() {
   const int listSize = static_cast<int>(books.size());
   bool navigated = false;
   if (listSize > 0) {
-    buttonNavigator.onNextRelease([this, listSize, &navigated] {
+    using Btn = MappedInputManager::Button;
+    // Left/Right move one book (reading order, wrapping); Up/Down move a full
+    // row, staying in the same column (clamped at the top/bottom row).
+    auto moveRight = [this, listSize, &navigated] {
       selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
       navigated = true;
-    });
-    buttonNavigator.onPreviousRelease([this, listSize, &navigated] {
+    };
+    auto moveLeft = [this, listSize, &navigated] {
       selectorIndex = ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize);
       navigated = true;
-    });
-    // Continuous press jumps a full row for fast traversal.
-    buttonNavigator.onNextContinuous([this, listSize, &navigated] {
-      selectorIndex = ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, GRID_COLS);
-      navigated = true;
-    });
-    buttonNavigator.onPreviousContinuous([this, listSize, &navigated] {
-      selectorIndex = ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, GRID_COLS);
-      navigated = true;
-    });
+    };
+    auto moveDown = [this, listSize, &navigated] {
+      if (static_cast<int>(selectorIndex) + GRID_COLS < listSize) {
+        selectorIndex += GRID_COLS;
+        navigated = true;
+      }
+    };
+    auto moveUp = [this, &navigated] {
+      if (selectorIndex >= static_cast<size_t>(GRID_COLS)) {
+        selectorIndex -= GRID_COLS;
+        navigated = true;
+      }
+    };
+    buttonNavigator.onRelease({Btn::Right}, moveRight);
+    buttonNavigator.onRelease({Btn::Left}, moveLeft);
+    buttonNavigator.onRelease({Btn::Down}, moveDown);
+    buttonNavigator.onRelease({Btn::Up}, moveUp);
+    // Hold-to-repeat for fast traversal.
+    buttonNavigator.onContinuous({Btn::Right}, moveRight);
+    buttonNavigator.onContinuous({Btn::Left}, moveLeft);
+    buttonNavigator.onContinuous({Btn::Down}, moveDown);
+    buttonNavigator.onContinuous({Btn::Up}, moveUp);
   }
   if (navigated) {
     lastInputMs = millis();
