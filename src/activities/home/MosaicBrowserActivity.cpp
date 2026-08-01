@@ -136,9 +136,10 @@ void MosaicBrowserActivity::indexBook(int i) {
 
   if (FsHelpers::hasEpubExtension(book.path)) {
     Epub epub(book.path, kCacheDir);
-    // buildIfMissing = true so never-opened books get their metadata cache
-    // built here; without it, thumbnail generation silently no-ops.
-    if (epub.load(true, true)) {
+    // Metadata-only load: parses just the OPF (title + cover) and skips the
+    // expensive spine-size build, so indexing a book for the grid is seconds
+    // not ~13 s. Reuses the full cache if the book was already opened/indexed.
+    if (epub.loadMetadataOnly()) {
       const std::string& title = epub.getTitle();
       if (!title.empty()) book.label = title;
       book.coverBmpPath = epub.getThumbBmpPath();
