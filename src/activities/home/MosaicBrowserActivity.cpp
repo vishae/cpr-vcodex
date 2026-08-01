@@ -8,6 +8,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <cstring>
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
@@ -18,6 +19,14 @@ namespace {
 constexpr int kCornerRadius = 6;
 constexpr int kSelectPad = 3;      // border inset around the selected cover
 constexpr char kCacheDir[] = "/.crosspoint";
+
+std::string fileStem(const std::string& path) {
+  const size_t slash = path.find_last_of('/');
+  std::string name = (slash == std::string::npos) ? path : path.substr(slash + 1);
+  const size_t dot = name.find_last_of('.');
+  if (dot != std::string::npos && dot > 0) name = name.substr(0, dot);
+  return name;
+}
 }  // namespace
 
 void MosaicBrowserActivity::computeLayout() {
@@ -31,20 +40,24 @@ void MosaicBrowserActivity::computeLayout() {
   const int contentW = pageWidth - 2 * side;
   const int contentH = contentBottom - contentTop;
 
+  labelH = renderer.getLineHeight(SMALL_FONT_ID);
+
   const int maxCoverW = (contentW - (GRID_COLS - 1) * gapX) / GRID_COLS;
-  const int maxCoverH = (contentH - (GRID_ROWS - 1) * gapY) / GRID_ROWS;
+  const int maxCellH = (contentH - (GRID_ROWS - 1) * gapY) / GRID_ROWS;
+  const int coverBudgetH = std::max(16, maxCellH - labelH - labelGap);
 
   // Fit a 2:3 cover inside the per-cell budget (width- or height-limited).
-  coverW = std::min(maxCoverW, maxCoverH * 2 / 3);
+  coverW = std::min(maxCoverW, coverBudgetH * 2 / 3);
   if (coverW < 8) coverW = 8;
   coverH = coverW * 3 / 2;
-  if (coverH > maxCoverH) {
-    coverH = maxCoverH;
+  if (coverH > coverBudgetH) {
+    coverH = coverBudgetH;
     coverW = coverH * 2 / 3;
   }
 
+  const int cellH = coverH + labelGap + labelH;
   const int totalGridW = GRID_COLS * coverW + (GRID_COLS - 1) * gapX;
-  const int totalGridH = GRID_ROWS * coverH + (GRID_ROWS - 1) * gapY;
+  const int totalGridH = GRID_ROWS * cellH + (GRID_ROWS - 1) * gapY;
   gridX0 = (pageWidth - totalGridW) / 2;
   gridY0 = contentTop + std::max(0, (contentH - totalGridH) / 2);
 }
@@ -52,35 +65,52 @@ void MosaicBrowserActivity::computeLayout() {
 void MosaicBrowserActivity::loadBooks() {
   books.clear();
 
-  auto dir = Storage.open(libraryPath.c_str());
-  if (!dir || !dir.isDirectory()) {
-    if (dir) dir.close();
-    return;
-  }
-  dir.rewindDirectory();
-
+  // Recursive walk of the library folder (CGV-004), skipping hidden/system
+  // folders and the completed-books directory so those never appear in the grid.
+  std::vector<std::string> stack;
+  stack.push_back(libraryPath);
   char nameBuf[512];
-  for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
-    const bool isDir = file.isDirectory();
-    file.getName(nameBuf, sizeof(nameBuf));
-    if (isDir || nameBuf[0] == '.') {
-      file.close();
+
+  while (!stack.empty()) {
+    const std::string dirPath = std::move(stack.back());
+    stack.pop_back();
+
+    auto dir = Storage.open(dirPath.c_str());
+    if (!dir || !dir.isDirectory()) {
+      if (dir) dir.close();
       continue;
     }
-    std::string_view filename{nameBuf};
-    // Cover-capable formats only; the plain list browser still handles the rest.
-    if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename)) {
-      std::string full = libraryPath;
+    dir.rewindDirectory();
+
+    for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
+      const bool isDir = file.isDirectory();
+      file.getName(nameBuf, sizeof(nameBuf));
+
+      if (nameBuf[0] == '.' || strcmp(nameBuf, "System Volume Information") == 0 ||
+          strcmp(nameBuf, "finished_books") == 0) {
+        file.close();
+        continue;
+      }
+
+      std::string full = dirPath;
       if (full.empty() || full.back() != '/') full += "/";
       full += nameBuf;
-      books.push_back(GridBook{std::move(full), "", false});
+
+      if (isDir) {
+        stack.push_back(full);
+      } else {
+        std::string_view filename{nameBuf};
+        if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename)) {
+          books.push_back(GridBook{full, fileStem(full), "", false});
+        }
+      }
+      file.close();
     }
-    file.close();
+    dir.close();
   }
-  dir.close();
 
   std::sort(books.begin(), books.end(),
-            [](const GridBook& a, const GridBook& b) { return a.path < b.path; });
+            [](const GridBook& a, const GridBook& b) { return a.label < b.label; });
 }
 
 int MosaicBrowserActivity::pageStartFor(size_t index) const {
@@ -89,14 +119,34 @@ int MosaicBrowserActivity::pageStartFor(size_t index) const {
 
 void MosaicBrowserActivity::loadPageCovers(int pageStart) {
   const int pageEnd = std::min(pageStart + BOOKS_PER_PAGE, static_cast<int>(books.size()));
+
+  bool needWork = false;
+  for (int i = pageStart; i < pageEnd; ++i) {
+    if (!books[i].loaded) {
+      needWork = true;
+      break;
+    }
+  }
+  // Show feedback: metadata parsing + thumbnail generation for a fresh page can
+  // take a few seconds. The physical eink otherwise shows a stale frame.
+  if (needWork) {
+    renderer.clearScreen();
+    renderer.drawCenteredText(UI_10_FONT_ID, renderer.getScreenHeight() / 2, tr(STR_LOADING_COVERS));
+    renderer.displayBuffer();
+  }
+
   for (int i = pageStart; i < pageEnd; ++i) {
     GridBook& book = books[i];
-    if (book.coverAttempted) continue;
-    book.coverAttempted = true;
+    if (book.loaded) continue;
+    book.loaded = true;
 
     if (FsHelpers::hasEpubExtension(book.path)) {
       Epub epub(book.path, kCacheDir);
-      if (epub.load(false, true)) {  // metadata only, no CSS
+      // buildIfMissing = true so never-opened books get their metadata cache
+      // built here; without it, thumbnail generation silently no-ops.
+      if (epub.load(true, true)) {
+        const std::string& title = epub.getTitle();
+        if (!title.empty()) book.label = title;
         book.coverBmpPath = epub.getThumbBmpPath();
         const std::string thumb = UITheme::getCoverThumbPath(book.coverBmpPath, coverW, coverH);
         if (!Storage.exists(thumb.c_str())) {
@@ -104,7 +154,8 @@ void MosaicBrowserActivity::loadPageCovers(int pageStart) {
         }
       }
     }
-    // .xtc covers are handled by a later step; they fall back to the placeholder.
+    // .xtc covers are handled by a later step; they fall back to the placeholder
+    // (still labelled by filename).
   }
   loadedPageStart = pageStart;
 }
@@ -158,17 +209,16 @@ void MosaicBrowserActivity::loop() {
 }
 
 void MosaicBrowserActivity::render(RenderLock&&) {
-  renderer.clearScreen();
-
   const auto& m = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
 
   const int total = static_cast<int>(books.size());
   const int pageStart = pageStartFor(selectorIndex);
   if (loadedPageStart != pageStart) {
-    loadPageCovers(pageStart);
+    loadPageCovers(pageStart);  // may draw a loading frame
   }
+
+  renderer.clearScreen();
 
   // Header (with page indicator when there's more than one page).
   std::string title = tr(STR_COVER_GRID);
@@ -182,13 +232,14 @@ void MosaicBrowserActivity::render(RenderLock&&) {
   if (total == 0) {
     renderer.drawCenteredText(UI_10_FONT_ID, m.topPadding + m.headerHeight + 40, tr(STR_NO_FILES_FOUND));
   } else {
+    const int cellH = coverH + labelGap + labelH;
     const int pageEnd = std::min(pageStart + BOOKS_PER_PAGE, total);
     for (int i = pageStart; i < pageEnd; ++i) {
       const int slot = i - pageStart;
       const int row = slot / GRID_COLS;
       const int col = slot % GRID_COLS;
       const int x = gridX0 + col * (coverW + gapX);
-      const int y = gridY0 + row * (coverH + gapY);
+      const int y = gridY0 + row * (cellH + gapY);
 
       bool hasCover = false;
       const GridBook& book = books[i];
@@ -213,6 +264,14 @@ void MosaicBrowserActivity::render(RenderLock&&) {
         renderer.drawIcon(CoverIcon, x + coverW / 2 - 16, y + coverH / 2 - 16, 32, 32);
       }
 
+      // Title label under the cover (truncated to the cover width).
+      std::string label = book.label;
+      while (!label.empty() && renderer.getTextWidth(SMALL_FONT_ID, label.c_str()) > coverW) {
+        label.pop_back();
+      }
+      const int labelW = renderer.getTextWidth(SMALL_FONT_ID, label.c_str());
+      renderer.drawText(SMALL_FONT_ID, x + (coverW - labelW) / 2, y + coverH + labelGap, label.c_str());
+
       // Selection highlight: a thicker rounded border around the current cover.
       if (i == static_cast<int>(selectorIndex)) {
         renderer.drawRoundedRect(x - kSelectPad, y - kSelectPad, coverW + 2 * kSelectPad, coverH + 2 * kSelectPad, 3,
@@ -225,6 +284,5 @@ void MosaicBrowserActivity::render(RenderLock&&) {
                                             books.empty() ? "" : tr(STR_DIR_UP), books.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
-  (void)pageHeight;
   renderer.displayBuffer();
 }

@@ -8,14 +8,15 @@
 #include "util/ButtonNavigator.h"
 
 // KOReader-style mosaic library browser: a 3x3 grid of book cover thumbnails
-// scanned from a library folder (default /books), paged when there are more
-// than 9 books. On-demand thumbnail generation, reusing the firmware's existing
-// cover pipeline (Epub::generateThumbBmp / UITheme::getCoverThumbPath).
+// scanned (recursively) from a library folder (default /books), paged when
+// there are more than 9 books. On-demand thumbnail generation, reusing the
+// firmware's existing cover pipeline (Epub::generateThumbBmp /
+// UITheme::getCoverThumbPath). Each cover shows the book title beneath it.
 //
 // Added alongside the plain-list FileBrowserActivity (PID-26028, DEC-002) and
-// registered as its own reorderable Apps shortcut (DEC-004). Step 1: grid +
-// paging + thumbnails only; grouping/sorting (CGV-002/003) and the library-
-// folder setting + missing-folder popup (CGV-005) come later.
+// registered as its own reorderable Apps shortcut (DEC-004). Grouping/sorting
+// (CGV-002/003) and the library-folder setting + missing-folder popup (CGV-005)
+// come later; recursive scan is CGV-004.
 class MosaicBrowserActivity final : public Activity {
  public:
   static constexpr int GRID_COLS = 3;
@@ -25,8 +26,9 @@ class MosaicBrowserActivity final : public Activity {
  private:
   struct GridBook {
     std::string path;
+    std::string label;          // filename stem at scan time, upgraded to the title once metadata loads
     std::string coverBmpPath;   // base thumb path, resolved when the page loads
-    bool coverAttempted = false;
+    bool loaded = false;        // metadata + thumb attempted for this book
   };
 
   ButtonNavigator buttonNavigator;
@@ -38,8 +40,10 @@ class MosaicBrowserActivity final : public Activity {
   // Layout, computed once in onEnter from screen size + theme metrics.
   int coverW = 0;
   int coverH = 0;
+  int labelH = 0;
   int gapX = 10;
   int gapY = 10;
+  int labelGap = 2;
   int gridX0 = 0;
   int gridY0 = 0;
 
