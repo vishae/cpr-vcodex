@@ -59,6 +59,11 @@ void PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffse
   imageBlock->render(renderer, xPos + xOffset, yPos + yOffset);
 }
 
+void PageImage::renderPlaceholder(GfxRenderer& renderer, const int xOffset, const int yOffset) const {
+  if (!imageBlock) return;
+  imageBlock->renderPlaceholder(renderer, xPos + xOffset, yPos + yOffset);
+}
+
 bool PageImage::serialize(FsFile& file) {
   serialization::writePod(file, xPos);
   serialization::writePod(file, yPos);
@@ -365,6 +370,18 @@ void Page::renderImages(GfxRenderer& renderer, const int xOffset, const int yOff
     if (!element) continue;
     if (element->getTag() == TAG_PageImage) {
       element->render(renderer, 0, xOffset, yOffset);
+    }
+  }
+}
+
+void Page::renderWithImagePlaceholders(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+                                       const uint8_t bionicReadingMode) const {
+  for (const auto& element : elements) {
+    if (!element) continue;
+    if (element->getTag() == TAG_PageImage) {
+      static_cast<const PageImage&>(*element).renderPlaceholder(renderer, xOffset, yOffset);
+    } else {
+      element->render(renderer, fontId, xOffset, yOffset, bionicReadingMode);
     }
   }
 }

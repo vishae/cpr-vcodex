@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include <ArduinoJson.h>
+
 #include "CrossPointSettings.h"
 
 inline uint64_t getDailyReadingGoalMs() { return SETTINGS.getDailyGoalMs(); }
@@ -57,6 +59,7 @@ namespace JsonSettingsIO {
 bool saveReadingStats(const ReadingStatsStore& store, const char* path);
 bool loadReadingStats(ReadingStatsStore& store, const char* json);
 bool loadReadingStatsFromFile(ReadingStatsStore& store, const char* path);
+bool loadReadingStatsDocument(ReadingStatsStore& store, const JsonDocument& doc);
 }  // namespace JsonSettingsIO
 
 class ReadingStatsStore {
@@ -101,6 +104,7 @@ class ReadingStatsStore {
   friend bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore&, const char*);
   friend bool JsonSettingsIO::loadReadingStats(ReadingStatsStore&, const char*);
   friend bool JsonSettingsIO::loadReadingStatsFromFile(ReadingStatsStore&, const char*);
+  friend bool JsonSettingsIO::loadReadingStatsDocument(ReadingStatsStore&, const JsonDocument&);
 
   size_t findBookIndexByPath(const std::string& path) const;
   size_t findBookIndexByBookId(const std::string& bookId) const;

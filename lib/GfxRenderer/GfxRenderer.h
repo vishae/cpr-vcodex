@@ -216,6 +216,25 @@ class GfxRenderer {
   void restoreBwBuffer();  // Restore and free the stored buffer
   void cleanupGrayscaleWithFrameBuffer() const;
 
+  // Temporarily expose the framebuffer as build scratch. No drawing is valid
+  // while it is lent; restore always returns a cleared, ready-to-redraw buffer.
+  void releaseFrameBufferForBuild();
+  bool restoreFrameBufferAfterBuild();
+  bool hasFrameBuffer() const { return frameBuffer != nullptr; }
+
+  class FrameBufferLoan {
+   public:
+    explicit FrameBufferLoan(GfxRenderer& renderer);
+    ~FrameBufferLoan() { end(); }
+    FrameBufferLoan(const FrameBufferLoan&) = delete;
+    FrameBufferLoan& operator=(const FrameBufferLoan&) = delete;
+    void end();
+
+   private:
+    GfxRenderer& renderer_;
+    bool active_ = false;
+  };
+
   // Font helpers
   const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const;
 

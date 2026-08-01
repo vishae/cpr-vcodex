@@ -1,5 +1,6 @@
 #pragma once
 
+#include <HalStorage.h>
 #include <expat.h>
 
 #include <climits>
@@ -13,8 +14,8 @@
 #include "../FootnoteEntry.h"
 #include "../ParsedText.h"
 #include "../blocks/ImageBlock.h"
-#include "../converters/ImageToFramebufferDecoder.h"
 #include "../blocks/TextBlock.h"
+#include "../converters/ImageToFramebufferDecoder.h"
 #include "../css/CssParser.h"
 #include "../css/CssStyle.h"
 
@@ -46,6 +47,9 @@ class ChapterHtmlSlimParser {
   std::function<void(std::unique_ptr<Page>, ParagraphLutEntry)> completePageFn;
   std::function<void()> popupFn;      // Popup callback
   XML_Parser activeParser = nullptr;  // Expat parser used to capture byte offsets for sync LUT hints
+  XML_Parser xmlParser_ = nullptr;
+  HalFile parseFile_;
+  uint32_t parseStartTime_ = 0;
   int depth = 0;
   int skipUntilDepth = INT_MAX;
   int boldUntilDepth = INT_MAX;
@@ -58,6 +62,10 @@ class ChapterHtmlSlimParser {
   int partWordBufferIndex = 0;
   bool nextWordContinues = false;  // true when next flushed word attaches to previous (inline element boundary)
   std::unique_ptr<ParsedText> currentTextBlock = nullptr;
+  bool inRuby = false;
+  int rubyStartWordIndex = -1;
+  bool collectingRubyText = false;
+  std::string rubyTextBuffer;
   std::unique_ptr<Page> currentPage = nullptr;
   int16_t currentPageNextY = 0;
   int fontId;
@@ -136,6 +144,7 @@ class ChapterHtmlSlimParser {
   bool currentTableCellIsHeader = false;
   uint8_t currentTableCellColSpan = 1;
   std::unique_ptr<BufferedTable> currentTableBuffer = nullptr;
+  bool listItemBulletOnly = false;  // true when currentTextBlock has only the <li> bullet
 
   // Anchor-to-page mapping: tracks which page each HTML id attribute lands on
   int completedPageCount = 0;
@@ -163,8 +172,7 @@ class ChapterHtmlSlimParser {
   void collectReferencedAnchor(const char* href);
   bool isReferencedAnchor(const std::string& anchor) const;
   bool shouldRecordAnchor(const char* elementName, const std::string& anchor) const;
-  bool readImageDimensions(const std::string& resolvedPath, const std::string& cachedImagePath,
-                           ImageDimensions& dims);
+  bool readImageDimensions(const std::string& resolvedPath, const std::string& cachedImagePath, ImageDimensions& dims);
   bool shouldSuppressRepeatedImage(const std::string& resolvedPath);
   void serviceLongParse(const char* stage);
   void startNewTextBlock(const BlockStyle& blockStyle);
@@ -218,8 +226,15 @@ class ChapterHtmlSlimParser {
         imageBasePath(imageBasePath),
         tocAnchors(std::move(tocAnchors)) {}
 
-  ~ChapterHtmlSlimParser() = default;
+  ~ChapterHtmlSlimParser();
   bool parseAndBuildPages();
+  enum class ParseStatus { More, Done, Error };
+  bool beginParse();
+  ParseStatus parseStep();
+  bool finishParse();
+  void abortParse();
+  size_t parseBytesConsumed() { return parseFile_ ? parseFile_.position() : 0; }
+  size_t parseTotalBytes() { return parseFile_ ? parseFile_.size() : 0; }
   void addLineToPage(std::shared_ptr<TextBlock> line);
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
   bool wasLowMemoryFallbackTriggered() const { return lowMemoryImageFallback; }

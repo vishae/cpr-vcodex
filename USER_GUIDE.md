@@ -234,9 +234,20 @@ You can also manage OPDS servers from the web interface while in File Transfer m
 CPR-vCodex can sync reading progress with KOReader-compatible sync servers.
 It also interoperates with KOReader apps/devices when they use the same server and credentials.
 
+Each account is stored as a named profile. A profile contains its own username, password, server, document matching method, metadata preference, and sync behavior. Up to eight profiles can be saved, and changing or registering one profile does not silently replace the active profile.
+
+Profile options:
+
+* **Send Metadata:** Include the EPUB filename, title, and authors in progress uploads. This is off by default.
+* **Sync Behavior — Ask Every Time:** Show the remote/local choice during a manual sync.
+* **Sync Behavior — Smart Sync:** Check both supported document hashes, upload when local progress is farther ahead, apply remote progress when it is farther ahead, and do nothing when both sides match.
+* **Sign Up:** Create the account using this profile's username, password, and server. It neither activates the profile nor changes an already configured server.
+
 ##### Option A: Free Public Server (`sync.koreader.rocks`)
 
-1. Register a user once (only if needed):
+1. Add a profile under **Settings -> System -> KOReader Sync**, enter a username and password, leave the server empty (or use `https://sync.koreader.rocks`), save it, and choose **Sign Up** if the account does not exist yet.
+
+The equivalent command-line registration is:
 
 ```bash
 USERNAME="user"
@@ -255,9 +266,9 @@ When this returns `HTTP 402` with `{"code":2002,"message":"Username is already r
 
 2. On each CPR-vCodex device:
    - Go to **Settings -> System -> KOReader Sync**.
-   - Set **Username** and **Password** (enter the plain password; CPR-vCodex computes MD5 internally, and use the same values on all devices).
-   - Set **Sync Server URL** to `https://sync.koreader.rocks`, or leave it empty (both use the same default KOReader sync server).
-   - Run **Authenticate**.
+   - Add or edit a named profile with the same **Username** and **Password** (enter the plain password; CPR-vCodex computes MD5 internally).
+   - Set **Sync Server URL** to `https://sync.koreader.rocks`, or leave it empty (both use the default KOReader sync server).
+   - Choose the metadata and sync behavior preferences, then save, **Set as Active**, and run **Authenticate**.
 
 3. While reading, press **Confirm** to open the reader menu, then select **Sync Progress**.
    - Choose **Apply Remote** to jump to remote progress.
@@ -302,7 +313,7 @@ curl -H "Accept: application/vnd.koreader.v1+json" "http://<server-ip>:17200/hea
 # Expected: {"state":"OK"}
 ```
 
-3. Register a user once.
+3. Register a user once with the profile's **Sign Up** action. The equivalent command-line method is shown below.
 CPR-vCodex authenticates against KOReader Sync (`koreader/kosync`) using an MD5 key, so register using the MD5 of your password:
 
 > [!WARNING]
@@ -326,9 +337,9 @@ If this returns `HTTP 402` with `{"code":2002,"message":"Username is already reg
 
 4. On each CPR-vCodex device:
    - Go to **Settings -> System -> KOReader Sync**.
-   - Set **Username** and **Password** (enter the plain password; CPR-vCodex computes MD5 internally, and use the same values on all devices).
-   - Set **Sync Server URL** to `http://<server-ip>:17200`.
-   - Run **Authenticate**.
+   - Add or edit a named profile with the same **Username** and **Password** (enter the plain password; CPR-vCodex computes MD5 internally).
+   - Set that profile's **Sync Server URL** to `http://<server-ip>:17200`.
+   - Choose the metadata and sync behavior preferences, then save, **Set as Active**, and run **Authenticate**.
 
 If you use the HTTPS listener, use `https://<server-ip>:7200` (`curl -k` only for self-signed certificate testing).
 
@@ -409,7 +420,7 @@ CPR-vCodex renders text using the following Unicode character blocks, enabling s
 *   **Latin Script (Basic, Supplement, Extended-A):** Covers English, German, French, Spanish, Portuguese, Italian, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Slovak, Slovenian, Turkish, and others.
 *   **Cyrillic Script (Standard and Extended):** Covers Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian, Kazakh, Kyrgyz, Mongolian, and others.
 
-What is not supported: Chinese, Japanese, Korean, Vietnamese, Hebrew, Arabic, Greek and Farsi.
+The built-in fonts do not provide complete glyph coverage for Chinese, Japanese, Korean, Vietnamese, Hebrew, Arabic, Greek, or Farsi. EPUB `<ruby>` annotations are supported, including native layout for Chinese/Japanese reading aids, when the selected SD-card font contains the required glyphs. Complex right-to-left shaping is not supported.
 
 ---
 
@@ -427,7 +438,7 @@ Accessible by pressing **Confirm** while inside a book.
 
 Please note that this firmware is currently in active development. The following features are **not yet supported** but are planned for future updates:
 
-* **Images:** Embedded images in e-books will not render.
+* **Images:** EPUB images render, including common raster images, packed low-depth PNGs, scaling, and local image references inside SVG. Very large or unusual images may fall back to a placeholder if they cannot be decoded within the available memory.
 * **Cover Images:** Large cover images embedded into EPUB require several seconds (~10s for ~2000 pixel tall image) to convert for sleep screen and home screen thumbnail. Consider optimizing the EPUB with e.g. https://github.com/bigbag/epub-to-xtc-converter to speed this up.
 
 ---

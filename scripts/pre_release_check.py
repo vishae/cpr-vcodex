@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from release_notes_from_changelog import render_release_notes
+
 
 APP_PARTITION_SIZE = 6_553_600
 RAM_RE = re.compile(r"RAM:.*?(\d+)\s+bytes\s+from\s+(\d+)\s+bytes")
@@ -165,6 +167,33 @@ def validate_artifacts(project_dir: Path, tag: str, release_seq: int, base_versi
     ok(f"release artifacts match tag {tag} ({firmware_bytes} bytes)")
 
 
+def validate_release_notes(project_dir: Path, tag: str) -> None:
+    notes = render_release_notes(project_dir / "CHANGELOG.md", tag)
+    if "## Changes" not in notes or "- " not in notes:
+        fail(f"Generated release notes for {tag} do not contain changelog bullets")
+    ok(f"release notes generated from CHANGELOG.md for {tag}")
+
+
+def validate_reading_stats_const_json_guards(project_dir: Path) -> None:
+    source = (project_dir / "src" / "JsonSettingsIO.cpp").read_text(encoding="utf-8")
+    function_start = source.find("bool JsonSettingsIO::loadReadingStatsDocument")
+    function_end = source.find("bool JsonSettingsIO::loadReadingStats(", function_start)
+    if function_start < 0 or function_end < 0:
+        fail("Could not locate loadReadingStatsDocument for JSON guard validation")
+
+    loader = source[function_start:function_end]
+    mutable_guards = (".is<JsonObject>()", ".is<JsonArray>()")
+    found = [guard for guard in mutable_guards if guard in loader]
+    if found:
+        fail(
+            "Reading Stats validates const JSON through mutable ArduinoJson types: " + ", ".join(found)
+        )
+    if ".is<JsonObjectConst>()" not in loader or ".is<JsonArrayConst>()" not in loader:
+        fail("Reading Stats const JSON object/array guards are missing")
+
+    ok("Reading Stats uses const-correct ArduinoJson type guards")
+
+
 def validate_autoflash_manifest(project_dir: Path) -> None:
     manifest_path = project_dir / "docs" / "firmware" / "manifest.json"
     firmware_path = project_dir / "docs" / "firmware" / "firmware.bin"
@@ -200,6 +229,8 @@ def main() -> int:
         release_seq = parse_release_tag(args.tag, base_version)
         require_clean_worktree(args.allow_dirty)
         require_tag_available(args.tag, args.allow_existing_tag)
+        validate_release_notes(project_dir, args.tag)
+        validate_reading_stats_const_json_guards(project_dir)
 
         if args.skip_build:
             print("[warn] Skipping gh_release build; validating existing artifacts only.")

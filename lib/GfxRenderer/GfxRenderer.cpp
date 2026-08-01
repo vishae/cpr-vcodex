@@ -1,5 +1,6 @@
 #include "GfxRenderer.h"
 
+#include <BuildScratch.h>
 #include <FontDecompressor.h>
 #include <HalGPIO.h>
 #include <Logging.h>
@@ -100,6 +101,34 @@ void GfxRenderer::begin() {
   panelWidthBytes = display.getDisplayWidthBytes();
   frameBufferSize = display.getBufferSize();
   bwBufferChunks.assign((frameBufferSize + BW_BUFFER_CHUNK_SIZE - 1) / BW_BUFFER_CHUNK_SIZE, nullptr);
+}
+
+void GfxRenderer::releaseFrameBufferForBuild() {
+  if (!frameBuffer) return;
+  buildscratch::lend(frameBuffer, frameBufferSize);
+  frameBuffer = nullptr;
+}
+
+bool GfxRenderer::restoreFrameBufferAfterBuild() {
+  buildscratch::reclaim();
+  frameBuffer = display.getFrameBuffer();
+  if (frameBuffer) memset(frameBuffer, 0xFF, frameBufferSize);
+  return frameBuffer != nullptr;
+}
+
+GfxRenderer::FrameBufferLoan::FrameBufferLoan(GfxRenderer& renderer) : renderer_(renderer) {
+  if (!renderer_.hasFrameBuffer()) return;
+  renderer_.releaseFrameBufferForBuild();
+  active_ = true;
+}
+
+void GfxRenderer::FrameBufferLoan::end() {
+  if (!active_) return;
+  active_ = false;
+  if (!renderer_.restoreFrameBufferAfterBuild()) {
+    LOG_ERR("GFX", "Framebuffer restore failed - restarting");
+    ESP.restart();
+  }
 }
 
 bool GfxRenderer::isFontCacheScanning() const { return fontCacheManager_ && fontCacheManager_->isScanning(); }

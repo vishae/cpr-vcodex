@@ -6,6 +6,7 @@
 #include <optional>
 
 #include "BookmarkStore.h"
+#include "EndOfBookOptions.h"
 #include "EpubReaderMenuActivity.h"
 #include "activities/Activity.h"
 
@@ -25,6 +26,9 @@ class EpubReaderActivity final : public Activity {
   int pagesUntilFullRefresh = 0;
   int cachedSpineIndex = 0;
   int cachedChapterTotalPageCount = 0;
+  // Page numbers are stable across a progressive-cache rebuild. Remap by percentage only
+  // when a settings or viewport change actually caused the chapter to be repaginated.
+  bool pendingPaginationReposition = false;
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
   // Signals that the next render should reposition within the newly loaded section
@@ -45,6 +49,7 @@ class EpubReaderActivity final : public Activity {
   int sessionStartPage = 0;
   bool sessionProgressTouched = false;
   std::shared_ptr<Page> currentOverlayPageCache;
+  EndOfBookOptions endOfBookOptions;
   int currentOverlayPageSpineIndex = -1;
   int currentOverlayPageNumber = -1;
   int currentOverlayPageMarginLeft = 0;
@@ -81,14 +86,30 @@ class EpubReaderActivity final : public Activity {
   static constexpr int MAX_FOOTNOTE_DEPTH = 3;
   SavedPosition savedPositions[MAX_FOOTNOTE_DEPTH] = {};
   int footnoteDepth = 0;
+  int lastSavedSpineIndex = -1;
+  int lastSavedPage = -1;
+  int lastSavedPageCount = -1;
+  uint16_t buildViewportWidth = 0;
+  uint16_t buildViewportHeight = 0;
+  bool buildHeapPaused = false;
+  bool partialRebuildStartFailed = false;
+
+  static constexpr int BUILD_PAGES_PER_CHUNK = 8;
+  static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 2;
+  static constexpr int BUILD_WINDOW_AHEAD = 5;
+  static constexpr int PARTIAL_REBUILD_START_MARGIN = 15;
+  static constexpr size_t BACKGROUND_BUILD_MIN_FREE_HEAP = 32 * 1024;
+  static constexpr size_t BACKGROUND_BUILD_MIN_MAX_ALLOC = 16 * 1024;
 
   void renderContents(std::shared_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void drawTextHighlights(const Page& page, int orientedMarginTop, int orientedMarginLeft) const;
   void renderStatusBar() const;
   void renderSectionLoadFailure();
-  void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
-  void saveProgress(int spineIndex, int currentPage, int pageCount);
+  ReaderRenderSpec makeRenderSpec(uint16_t viewportWidth, uint16_t viewportHeight) const;
+  bool buildTickHeapGate();
+  bool applyDeferredReposition();
+  bool saveProgress(int spineIndex, int currentPage, int pageCount);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
@@ -132,6 +153,7 @@ class EpubReaderActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&& lock) override;
+  bool skipLoopDelay() override { return section && section->isBuilding() && !buildHeapPaused; }
   bool isReaderActivity() const override { return true; }
   ScreenshotInfo getScreenshotInfo() const override;
 };

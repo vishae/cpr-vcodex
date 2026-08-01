@@ -2,6 +2,9 @@
 
 #include <FsHelpers.h>
 #include <HalStorage.h>
+#include <I18n.h>
+
+#include <optional>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -14,6 +17,7 @@
 #include "XtcReaderActivity.h"
 #include "activities/util/BmpViewerActivity.h"
 #include "activities/util/FullScreenMessageActivity.h"
+#include "components/UITheme.h"
 
 bool ReaderActivity::isXtcFile(const std::string& path) { return FsHelpers::hasXtcExtension(path); }
 
@@ -31,7 +35,15 @@ std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
   }
 
   auto epub = std::unique_ptr<Epub>(new Epub(path, "/.crosspoint"));
-  if (epub->load(true, SETTINGS.embeddedStyle == 0)) {
+  const bool uncached = !Storage.exists((epub->getCachePath() + "/book.bin").c_str());
+  if (uncached) GUI.drawPopup(renderer, tr(STR_INDEXING));
+  bool loaded = false;
+  {
+    std::optional<GfxRenderer::FrameBufferLoan> loan;
+    if (uncached) loan.emplace(renderer);
+    loaded = epub->load(true, SETTINGS.embeddedStyle == 0);
+  }
+  if (loaded) {
     return epub;
   }
 
@@ -80,8 +92,8 @@ void ReaderActivity::onGoToEpubReader(std::unique_ptr<Epub> epub) {
   currentBookPath = epubPath;
 
   auto& sync = APP_STATE.koReaderSyncSession;
-  const bool canAutoPull = SETTINGS.koSyncAutoPullOnOpen && KOREADER_STORE.hasCredentials() && !initialBookmark.enabled &&
-                           !sync.active;
+  const bool canAutoPull =
+      SETTINGS.koSyncAutoPullOnOpen && KOREADER_STORE.hasCredentials() && !initialBookmark.enabled && !sync.active;
   if (canAutoPull) {
     sync.clear();
     sync.active = true;

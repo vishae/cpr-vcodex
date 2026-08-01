@@ -1,4 +1,5 @@
 #pragma once
+
 #include <EpdFontFamily.h>
 #include <HalStorage.h>
 
@@ -11,45 +12,62 @@
 
 class FontCacheManager;
 
-// Represents a line of text on a page
+// A rendered text line. All per-word arrays, base text and ruby text share one
+// allocation to avoid the hundreds of tiny vector/string allocations formerly
+// created while loading a page.
 class TextBlock final : public Block {
  private:
-  std::vector<std::string> words;
-  std::vector<int16_t> wordXpos;
-  std::vector<EpdFontFamily::Style> wordStyles;
-  // Per-word focus boundary: N > 0 means the first N bytes of words[i] are rendered bold,
-  // the remainder in the base style. 0 means no split (whole word uses wordStyles[i]).
-  // N encodes the bold PREFIX length only — bounded to 9 codepoints (≤36 UTF-8 bytes) by
-  // FOCUS_READING_PERCENT's 1..9 clamp in ParsedText::addWord, so it always fits in uint8_t.
-  // Vector is empty when no focus splits exist anywhere in the block (zero per-word RAM cost
-  // when focus reading is disabled, or on lines that happen to contain no splittable words).
-  std::vector<uint8_t> wordFocusBoundary;
-  // Pre-computed pixel offset from word start to the regular suffix, stored when boundary > 0.
-  // Eliminates getTextAdvanceX from the render path. 0 when boundary == 0.
-  // Empty in lockstep with wordFocusBoundary.
-  std::vector<uint16_t> wordFocusSuffixX;
   BlockStyle blockStyle;
+  uint16_t numWords = 0;
+  uint16_t textBytes = 0;
+  uint16_t rubyTextBytes = 0;
+  bool focusPresent = false;
+  bool rubyPresent = false;
+  bool isValid = true;
+  std::unique_ptr<uint8_t[]> arena;
+  const uint16_t* textOffArr = nullptr;
+  const uint16_t* rubyOffArr = nullptr;
+  const int16_t* xposArr = nullptr;
+  const uint16_t* focusSuffixXArr = nullptr;
+  const uint8_t* stylesArr = nullptr;
+  const uint8_t* focusBoundaryArr = nullptr;
+  const char* textArr = nullptr;
+  const char* rubyTextArr = nullptr;
+
+  TextBlock() = default;
+  static size_t arenaSize(uint16_t wordCount, bool hasFocus, bool hasRuby, uint16_t textBytes, uint16_t rubyTextBytes);
+  void bindArenaPointers();
 
  public:
-  explicit TextBlock(std::vector<std::string> words, std::vector<int16_t> word_xpos,
-                     std::vector<EpdFontFamily::Style> word_styles, std::vector<uint8_t> focus_boundary,
-                     std::vector<uint16_t> focus_suffix_x, const BlockStyle& blockStyle = BlockStyle())
-      : words(std::move(words)),
-        wordXpos(std::move(word_xpos)),
-        wordStyles(std::move(word_styles)),
-        wordFocusBoundary(std::move(focus_boundary)),
-        wordFocusSuffixX(std::move(focus_suffix_x)),
-        blockStyle(blockStyle) {}
+  explicit TextBlock(const std::vector<std::string>& words, const std::vector<int16_t>& wordXpos,
+                     const std::vector<EpdFontFamily::Style>& wordStyles, const std::vector<uint8_t>& focusBoundary,
+                     const std::vector<uint16_t>& focusSuffixX, const BlockStyle& blockStyle = BlockStyle(),
+                     const std::vector<std::string>& rubyTexts = {});
   ~TextBlock() override = default;
-  void setBlockStyle(const BlockStyle& blockStyle) { this->blockStyle = blockStyle; }
+  TextBlock(const TextBlock&) = delete;
+  TextBlock& operator=(const TextBlock&) = delete;
+
+  void setBlockStyle(const BlockStyle& style) { blockStyle = style; }
   const BlockStyle& getBlockStyle() const { return blockStyle; }
-  const std::vector<std::string>& getWords() const { return words; }
-  const std::vector<int16_t>& getWordXpos() const { return wordXpos; }
-  const std::vector<EpdFontFamily::Style>& getWordStyles() const { return wordStyles; }
-  bool isEmpty() override { return words.empty(); }
-  size_t wordCount() const { return words.size(); }
-  void recordFontUsage(FontCacheManager& fontCacheManager, int fontId, uint8_t bionicReadingMode = 0) const;
-  // given a renderer works out where to break the words into lines
+  bool isEmpty() override { return numWords == 0; }
+  bool valid() const { return isValid; }
+  uint16_t wordCount() const { return numWords; }
+  const char* wordText(uint16_t i) const { return textArr + textOffArr[i]; }
+  uint16_t wordTextLen(uint16_t i) const {
+    const uint16_t end = i + 1 < numWords ? textOffArr[i + 1] : textBytes;
+    return end - textOffArr[i] - 1;
+  }
+  int16_t wordXpos(uint16_t i) const { return xposArr[i]; }
+  EpdFontFamily::Style wordStyle(uint16_t i) const { return static_cast<EpdFontFamily::Style>(stylesArr[i]); }
+  uint8_t focusBoundary(uint16_t i) const { return focusPresent ? focusBoundaryArr[i] : 0; }
+  uint16_t focusSuffixX(uint16_t i) const { return focusPresent ? focusSuffixXArr[i] : 0; }
+  const char* rubyText(uint16_t i) const {
+    return rubyPresent && rubyOffArr[i] != UINT16_MAX ? rubyTextArr + rubyOffArr[i] : "";
+  }
+  bool hasRuby() const { return rubyPresent; }
+  int getRubyShift(int ascender) const { return rubyPresent ? ascender / 2 : 0; }
+
+  void recordFontUsage(FontCacheManager& manager, int fontId, uint8_t bionicReadingMode = 0) const;
   void render(const GfxRenderer& renderer, int fontId, int x, int y, uint8_t bionicReadingMode = 0) const;
   BlockType getType() override { return TEXT_BLOCK; }
   bool serialize(FsFile& file) const;

@@ -131,6 +131,10 @@
     <div class="card">
       <h2>Device Status</h2>
       <div class="info-row">
+        <span class="label">Serial #</span>
+        <span class="value" id="serial"></span>
+      </div>
+      <div class="info-row">
         <span class="label">Version</span>
         <span class="value" id="version"></span>
       </div>
@@ -232,6 +236,7 @@
         const data = await response.json();
         const wifiStatus = document.getElementById('wifi-status');
         document.getElementById('version').textContent = data.version || 'N/A';
+        document.getElementById('serial').textContent = data.serial || 'Not found';
         document.getElementById('ip-address').textContent = data.ip || 'N/A';
         document.getElementById('network-mode').textContent = data.mode === 'AP' ? 'Access Point' : 'WiFi Client';
         document.getElementById('signal-strength').textContent =

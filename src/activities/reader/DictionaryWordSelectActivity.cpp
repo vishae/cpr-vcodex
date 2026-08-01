@@ -25,8 +25,8 @@ constexpr int HIGHLIGHT_PADDING_Y = 1;
 constexpr int HIGHLIGHT_RADIUS = 3;
 
 std::string visibleHighlightWord(const std::string& word) {
-  if (word.size() >= 3 && static_cast<unsigned char>(word[0]) == 0xE2 &&
-      static_cast<unsigned char>(word[1]) == 0x80 && static_cast<unsigned char>(word[2]) == 0x83) {
+  if (word.size() >= 3 && static_cast<unsigned char>(word[0]) == 0xE2 && static_cast<unsigned char>(word[1]) == 0x80 &&
+      static_cast<unsigned char>(word[2]) == 0x83) {
     return word.substr(3);
   }
   return word;
@@ -66,17 +66,16 @@ void DictionaryWordSelectActivity::extractWords() {
     const auto& block = line.getBlock();
     if (!block) continue;
 
-    const auto& wordList = block->getWords();
-    const auto& xPositions = block->getWordXpos();
-    const size_t count = std::min(wordList.size(), xPositions.size());
+    const int rubyShift = block->getRubyShift(renderer.getFontAscenderSize(readerFontId));
+    const size_t count = block->wordCount();
     for (size_t i = 0; i < count; ++i) {
-      const std::string cleaned =
-          highlightPhraseMode ? visibleHighlightWord(wordList[i]) : DictionaryStore::cleanWord(wordList[i]);
+      const std::string word = block->wordText(i);
+      const std::string cleaned = highlightPhraseMode ? visibleHighlightWord(word) : DictionaryStore::cleanWord(word);
       if (cleaned.find_first_not_of(" \t\r\n") == std::string::npos) continue;
-      const int16_t x = static_cast<int16_t>(line.xPos + xPositions[i] + marginLeft);
-      const int16_t y = static_cast<int16_t>(line.yPos + marginTop);
-      const int16_t width = static_cast<int16_t>(std::max(1, measureWordWidth(wordList[i].c_str())));
-      words.push_back(WordInfo{wordList[i], cleaned, x, y, width, 0});
+      const int16_t x = static_cast<int16_t>(line.xPos + block->wordXpos(i) + marginLeft);
+      const int16_t y = static_cast<int16_t>(line.yPos + marginTop + rubyShift);
+      const int16_t width = static_cast<int16_t>(std::max(1, measureWordWidth(word.c_str())));
+      words.push_back(WordInfo{word, cleaned, x, y, width, 0});
     }
   }
 
@@ -109,10 +108,9 @@ void DictionaryWordSelectActivity::prepareReaderFontMetrics() {
     const auto& block = line.getBlock();
     if (!block) continue;
 
-    const auto& wordList = block->getWords();
-    for (const auto& word : wordList) {
+    for (uint16_t i = 0; i < block->wordCount(); ++i) {
       if (!pageText.empty()) pageText.push_back(' ');
-      pageText += word;
+      pageText += block->wordText(i);
     }
   }
 
@@ -231,8 +229,8 @@ void DictionaryWordSelectActivity::prewarmCurrentSelectionText() const {
 
   const int wordIndex = rows[currentRow].wordIndices[currentWordInRow];
   std::string text = words[wordIndex].text;
-  const int linkedIndex = words[wordIndex].continuationOf >= 0 ? words[wordIndex].continuationOf
-                                                               : words[wordIndex].continuationIndex;
+  const int linkedIndex =
+      words[wordIndex].continuationOf >= 0 ? words[wordIndex].continuationOf : words[wordIndex].continuationIndex;
   if (linkedIndex >= 0 && linkedIndex != wordIndex && linkedIndex < static_cast<int>(words.size())) {
     text.push_back(' ');
     text += words[linkedIndex].text;
@@ -252,18 +250,17 @@ size_t DictionaryWordSelectActivity::collectSelectionRects(SelectionRect* rects,
   auto addRect = [&](const WordInfo& selectedWord, size_t& count) {
     if (count >= maxRects) return;
     const int lineHeight = renderer.getLineHeight(readerFontId);
-    rects[count++] = SelectionRect{selectedWord.screenX - HIGHLIGHT_PADDING_X,
-                                   selectedWord.screenY - HIGHLIGHT_PADDING_Y,
-                                   selectedWord.width + HIGHLIGHT_PADDING_X * 2,
-                                   lineHeight + HIGHLIGHT_PADDING_Y * 2};
+    rects[count++] =
+        SelectionRect{selectedWord.screenX - HIGHLIGHT_PADDING_X, selectedWord.screenY - HIGHLIGHT_PADDING_Y,
+                      selectedWord.width + HIGHLIGHT_PADDING_X * 2, lineHeight + HIGHLIGHT_PADDING_Y * 2};
   };
 
   size_t count = 0;
   const int wordIndex = rows[currentRow].wordIndices[currentWordInRow];
   addRect(words[wordIndex], count);
 
-  const int linkedIndex = words[wordIndex].continuationOf >= 0 ? words[wordIndex].continuationOf
-                                                               : words[wordIndex].continuationIndex;
+  const int linkedIndex =
+      words[wordIndex].continuationOf >= 0 ? words[wordIndex].continuationOf : words[wordIndex].continuationIndex;
   if (linkedIndex >= 0 && linkedIndex != wordIndex && linkedIndex < static_cast<int>(words.size())) {
     addRect(words[linkedIndex], count);
   }
@@ -317,8 +314,8 @@ bool DictionaryWordSelectActivity::restoreSelectionBaseRegions() const {
   for (size_t i = 0; i < selectionRegionCount; ++i) {
     const SelectionRegionCache& region = selectionRegions[i];
     if (!region.stored || !region.buffer || region.size == 0) return false;
-    if (!renderer.copyBufferToRegion(region.rect.x, region.rect.y, region.rect.width, region.rect.height,
-                                     region.buffer, region.size)) {
+    if (!renderer.copyBufferToRegion(region.rect.x, region.rect.y, region.rect.width, region.rect.height, region.buffer,
+                                     region.size)) {
       return false;
     }
   }
@@ -471,22 +468,23 @@ void DictionaryWordSelectActivity::lookupSelectedWord() {
   }
 
   if (!lookup.suggestions.empty()) {
-    startActivityForResult(std::make_unique<DictionarySuggestionsActivity>(
-                               renderer, mappedInput, page, query, lookup.suggestions, readerFontId, marginLeft,
-                               marginTop),
-                           [this](const ActivityResult& result) {
-                             if (!result.isCancelled) {
-                               setResult(ActivityResult{});
-                               finish();
-                               return;
-                             }
-                             requestUpdate();
-                           });
+    startActivityForResult(
+        std::make_unique<DictionarySuggestionsActivity>(renderer, mappedInput, page, query, lookup.suggestions,
+                                                        readerFontId, marginLeft, marginTop),
+        [this](const ActivityResult& result) {
+          if (!result.isCancelled) {
+            setResult(ActivityResult{});
+            finish();
+            return;
+          }
+          requestUpdate();
+        });
     return;
   }
 
-  GUI.drawPopup(renderer, lookup.status == DictionaryLookupResult::Status::NoDictionary ? tr(STR_DICTIONARY_NONE_SELECTED)
-                                                                                        : tr(STR_DEFINITION_NOT_FOUND));
+  GUI.drawPopup(renderer, lookup.status == DictionaryLookupResult::Status::NoDictionary
+                              ? tr(STR_DICTIONARY_NONE_SELECTED)
+                              : tr(STR_DEFINITION_NOT_FOUND));
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   delay(900);
   requestUpdate();
@@ -557,14 +555,13 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
                       sideBackgroundHeight / 2, false);
   } else {
     const int sideY = std::min(341, std::max(0, renderer.getScreenHeight() - sideBackgroundHeight - 4));
-    renderer.fillRect(renderer.getScreenWidth() - sideBackgroundWidth, sideY, sideBackgroundWidth,
-                      sideBackgroundHeight, false);
+    renderer.fillRect(renderer.getScreenWidth() - sideBackgroundWidth, sideY, sideBackgroundWidth, sideBackgroundHeight,
+                      false);
   }
 
   const char* confirmLabel =
-      highlightPhraseMode
-          ? I18N.get(anchorWordIndex < 0 ? StrId::STR_HIGHLIGHT_START : StrId::STR_SAVE_HIGHLIGHT)
-          : tr(STR_SELECT);
+      highlightPhraseMode ? I18N.get(anchorWordIndex < 0 ? StrId::STR_HIGHLIGHT_START : StrId::STR_SAVE_HIGHLIGHT)
+                          : tr(STR_SELECT);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   GUI.drawSideButtonHints(renderer, tr(STR_DIR_UP), tr(STR_DIR_DOWN));

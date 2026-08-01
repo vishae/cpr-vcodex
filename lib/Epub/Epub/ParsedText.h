@@ -17,6 +17,7 @@ class ParsedText {
   std::vector<EpdFontFamily::Style> wordStyles;
   std::vector<bool> wordContinues;      // true = word attaches to previous (no space before it)
   std::vector<bool> wordIsFocusSuffix;  // true = token is the regular tail of a focus bold-prefix split
+  std::vector<std::string> rubyTexts;
   BlockStyle blockStyle;
   bool extraParagraphSpacing;
   bool forceParagraphIndents;
@@ -49,6 +50,13 @@ class ParsedText {
   ~ParsedText() = default;
 
   void addWord(std::string word, EpdFontFamily::Style fontStyle, bool underline = false, bool attachToPrevious = false);
+  void setRubyForWordAt(size_t index, const std::string& ruby);
+  void setRubyGroupAt(size_t startIndex, size_t count, const std::string& ruby);
+  EpdFontFamily::Style getWordStyleAt(size_t index) const {
+    return index < wordStyles.size() ? wordStyles[index] : EpdFontFamily::REGULAR;
+  }
+  std::string getRubyTextAt(size_t index) const { return index < rubyTexts.size() ? rubyTexts[index] : std::string(); }
+  void ensureRubyCapacity();
   void setBlockStyle(const BlockStyle& blockStyle) { this->blockStyle = blockStyle; }
   BlockStyle& getBlockStyle() { return blockStyle; }
   size_t size() const { return words.size(); }

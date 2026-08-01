@@ -54,6 +54,7 @@ class PageImage final : public PageElement {
   PageImage(std::shared_ptr<ImageBlock> block, const int16_t xPos, const int16_t yPos)
       : PageElement(xPos, yPos), imageBlock(std::move(block)) {}
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, uint8_t bionicReadingMode = 0) override;
+  void renderPlaceholder(GfxRenderer& renderer, int xOffset, int yOffset) const;
   bool serialize(FsFile& file) override;
   PageElementTag getTag() const override { return TAG_PageImage; }
   static std::unique_ptr<PageImage> deserialize(FsFile& file);
@@ -142,6 +143,8 @@ class Page {
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, uint8_t bionicReadingMode = 0) const;
   void recordFontUsage(FontCacheManager& fontCacheManager, int fontId, uint8_t bionicReadingMode = 0) const;
   void renderImages(GfxRenderer& renderer, int xOffset, int yOffset) const;
+  void renderWithImagePlaceholders(GfxRenderer& renderer, int fontId, int xOffset, int yOffset,
+                                   uint8_t bionicReadingMode = 0) const;
   bool serialize(FsFile& file) const;
   static std::unique_ptr<Page> deserialize(FsFile& file);
 
@@ -149,6 +152,13 @@ class Page {
   bool hasImages() const {
     return std::any_of(elements.begin(), elements.end(), [](const std::shared_ptr<PageElement>& el) {
       return el && el->getTag() == TAG_PageImage;
+    });
+  }
+
+  bool hasImagesNeedingDecode() const {
+    return std::any_of(elements.begin(), elements.end(), [](const std::shared_ptr<PageElement>& element) {
+      return element && element->getTag() == TAG_PageImage &&
+             static_cast<const PageImage&>(*element).getImageBlock().needsDecode();
     });
   }
 

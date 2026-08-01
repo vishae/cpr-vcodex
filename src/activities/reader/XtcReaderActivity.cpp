@@ -146,6 +146,31 @@ void XtcReaderActivity::loop() {
 
   const unsigned long nowMs = millis();
 
+  const bool atEndOfBook = currentPage >= xtc->getPageCount();
+  if (atEndOfBook && endOfBookOptions.menuActive()) {
+    std::string openPath;
+    switch (endOfBookOptions.handleMenuInput(mappedInput, &openPath)) {
+      case EndOfBookOptions::Action::OpenBook:
+        markStatsCompletedAtEnd(*xtc);
+        moveCompletedBookIfEnabled();
+        activityManager.goToReader(openPath);
+        return;
+      case EndOfBookOptions::Action::GoHome:
+        markStatsCompletedAtEnd(*xtc);
+        exitReaderAfterOptionalCompletedMove();
+        return;
+      case EndOfBookOptions::Action::LastPage:
+        currentPage = xtc->getPageCount() > 0 ? xtc->getPageCount() - 1 : 0;
+        requestUpdate();
+        return;
+      case EndOfBookOptions::Action::Redraw:
+        requestUpdate();
+        return;
+      case EndOfBookOptions::Action::None:
+        break;
+    }
+  }
+
   if (waitingForConfirmSecondClick && ReaderUtils::hasNonConfirmNavigationInput(mappedInput)) {
     waitingForConfirmSecondClick = false;
     firstConfirmClickMs = 0UL;
@@ -204,6 +229,7 @@ void XtcReaderActivity::loop() {
 
   // At end of the book, forward button goes home and back button returns to last page
   if (currentPage >= xtc->getPageCount()) {
+    if (endOfBookOptions.menuActive()) return;
     if (nextTriggered) {
       exitReaderAfterOptionalCompletedMove();
     } else {
@@ -281,8 +307,9 @@ void XtcReaderActivity::render(RenderLock&&) {
   if (currentPage >= xtc->getPageCount()) {
     // Show end of book screen
     markStatsCompletedAtEnd(*xtc);
+    endOfBookOptions.loadOnce(xtc->getPath());
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_END_OF_BOOK), true, EpdFontFamily::BOLD);
+    endOfBookOptions.render(renderer, mappedInput);
     renderer.displayBuffer();
     return;
   }

@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "activities/Activity.h"
+#include "EndOfBookOptions.h"
 
 class XtcReaderActivity final : public Activity {
   std::shared_ptr<Xtc> xtc;
@@ -23,6 +24,7 @@ class XtcReaderActivity final : public Activity {
   bool pendingForceFullRefresh = false;
   bool waitingForConfirmSecondClick = false;
   unsigned long firstConfirmClickMs = 0UL;
+  EndOfBookOptions endOfBookOptions;
 
   enum class StatusBarOverlayPosition { Bottom, Top };
   struct StatusBarInfo {

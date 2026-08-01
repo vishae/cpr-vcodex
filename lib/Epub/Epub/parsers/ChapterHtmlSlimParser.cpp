@@ -19,6 +19,7 @@
 #include "../../Epub.h"
 #include "../Page.h"
 #include "../converters/ImageDecoderFactory.h"
+#include "../converters/ImageDimsProbe.h"
 #include "../converters/ImageToFramebufferDecoder.h"
 #include "../htmlEntities.h"
 
@@ -39,7 +40,6 @@ constexpr uint16_t TEXT_BLOCK_SPLIT_WORD_LIMIT = 350;
 constexpr uint8_t INITIAL_PAGE_ELEMENT_RESERVE = 8;
 constexpr uint8_t INITIAL_TABLE_FRAGMENT_ROW_RESERVE = 8;
 constexpr uint32_t PAGE_ELEMENT_RESERVE_MIN_MAX_ALLOC = 1024;
-constexpr size_t IMAGE_DIMENSION_PREFIX_BYTES = 16 * 1024;
 constexpr size_t IMAGE_DIMENSION_PREFIX_CHUNK = 2048;
 
 constexpr const char* HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
@@ -48,10 +48,26 @@ constexpr const char* BOLD_TAGS[] = {"b", "strong"};
 constexpr const char* ITALIC_TAGS[] = {"i", "em"};
 constexpr const char* UNDERLINE_TAGS[] = {"u", "ins"};
 constexpr const char* STRIKE_TAGS[] = {"s", "strike", "del"};
-constexpr const char* IMAGE_TAGS[] = {"img"};
-constexpr const char* SKIP_TAGS[] = {"head"};
+constexpr const char* IMAGE_TAGS[] = {"img", "image"};
+constexpr const char* SKIP_TAGS[] = {"head", "rp"};
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
+
+std::string trimAndNormalize(const std::string& text) {
+  std::string result;
+  result.reserve(text.size());
+  bool pendingSpace = false;
+  for (const char c : text) {
+    if (isWhitespace(c)) {
+      pendingSpace = !result.empty();
+    } else {
+      if (pendingSpace) result.push_back(' ');
+      result.push_back(c);
+      pendingSpace = false;
+    }
+  }
+  return result;
+}
 
 bool matches(const char* tag_name, const char* const* possible_tags, size_t count) {
   for (size_t i = 0; i < count; i++) {
@@ -86,79 +102,6 @@ bool hasClassToken(const std::string& classAttr, const char* token) {
     }
   }
   return false;
-}
-
-uint16_t readBe16(const uint8_t* data) { return (static_cast<uint16_t>(data[0]) << 8) | data[1]; }
-
-uint32_t readBe32(const uint8_t* data) {
-  return (static_cast<uint32_t>(data[0]) << 24) | (static_cast<uint32_t>(data[1]) << 16) |
-         (static_cast<uint32_t>(data[2]) << 8) | data[3];
-}
-
-bool isJpegSofMarker(const uint8_t marker) {
-  return (marker >= 0xC0 && marker <= 0xC3) || (marker >= 0xC5 && marker <= 0xC7) ||
-         (marker >= 0xC9 && marker <= 0xCB) || (marker >= 0xCD && marker <= 0xCF);
-}
-
-bool parseJpegDimensions(const uint8_t* data, const size_t size, ImageDimensions& dims) {
-  if (!data || size < 4 || data[0] != 0xFF || data[1] != 0xD8) {
-    return false;
-  }
-
-  size_t pos = 2;
-  while (pos + 4 <= size) {
-    while (pos < size && data[pos] != 0xFF) {
-      pos++;
-    }
-    while (pos < size && data[pos] == 0xFF) {
-      pos++;
-    }
-    if (pos >= size) {
-      return false;
-    }
-
-    const uint8_t marker = data[pos++];
-    if (marker == 0xD9 || marker == 0xDA) {
-      return false;
-    }
-    if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
-      continue;
-    }
-    if (pos + 2 > size) {
-      return false;
-    }
-
-    const uint16_t segmentLength = readBe16(data + pos);
-    if (segmentLength < 2 || pos + segmentLength > size) {
-      return false;
-    }
-    if (isJpegSofMarker(marker)) {
-      if (segmentLength < 7) {
-        return false;
-      }
-      dims.height = readBe16(data + pos + 3);
-      dims.width = readBe16(data + pos + 5);
-      return dims.width > 0 && dims.height > 0;
-    }
-    pos += segmentLength;
-  }
-  return false;
-}
-
-bool parsePngDimensions(const uint8_t* data, const size_t size, ImageDimensions& dims) {
-  static constexpr uint8_t PNG_SIGNATURE[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
-  if (!data || size < 24 || memcmp(data, PNG_SIGNATURE, sizeof(PNG_SIGNATURE)) != 0 ||
-      memcmp(data + 12, "IHDR", 4) != 0) {
-    return false;
-  }
-
-  dims.width = static_cast<int>(readBe32(data + 16));
-  dims.height = static_cast<int>(readBe32(data + 20));
-  return dims.width > 0 && dims.height > 0;
-}
-
-bool parseImageDimensionsFromPrefix(const uint8_t* data, const size_t size, ImageDimensions& dims) {
-  return parsePngDimensions(data, size, dims) || parseJpegDimensions(data, size, dims);
 }
 
 bool isInternalEpubLink(const char* href) {
@@ -379,13 +322,10 @@ bool ChapterHtmlSlimParser::readImageDimensions(const std::string& resolvedPath,
     return true;
   }
 
-  auto* imagePrefix = static_cast<uint8_t*>(malloc(IMAGE_DIMENSION_PREFIX_BYTES));
-  size_t imagePrefixSize = 0;
-  bool dimensionsRead = imagePrefix &&
-                        epub->readItemPrefixToBuffer(resolvedPath, imagePrefix, IMAGE_DIMENSION_PREFIX_BYTES,
-                                                     &imagePrefixSize, IMAGE_DIMENSION_PREFIX_CHUNK) &&
-                        parseImageDimensionsFromPrefix(imagePrefix, imagePrefixSize, dims);
-  free(imagePrefix);
+  ImageDimsProbe headerProbe;
+  epub->readItemContentsToStream(resolvedPath, headerProbe, IMAGE_DIMENSION_PREFIX_CHUNK,
+                                 /*allowEarlyStop=*/true);
+  bool dimensionsRead = headerProbe.getDimensions(dims);
 
   // Some otherwise-decodable EPUB images have metadata/layout that the small
   // prefix probe cannot recognize. Fall back to the older streaming extraction
@@ -543,6 +483,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues);
   partWordBufferIndex = 0;
   nextWordContinues = false;
+  listItemBulletOnly = false;
 }
 
 // start a new text block if needed
@@ -561,8 +502,28 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
       // open. Merge those into the new style so the first child in a container inherits
       // the container's vertical spacing.
       const auto style = currentTextBlock->getBlockStyle();
-      currentTextBlock->setBlockStyle(style.getCombinedBlockStyle(blockStyle, BlockStyle::CombineAxis::Vertical));
+      BlockStyle incoming = blockStyle;
+      if (style.fromBrElement) {
+        // The empty block was created by a <br> section separator. Inject a full line of
+        // blank space before the following paragraph so the scene/section break is visible.
+        // This only fires when the <br> block stayed empty (i.e. no inline text was added).
+        const int16_t lineHeight = static_cast<int16_t>(renderer.getLineHeight(fontId) * lineCompression + 0.5f);
+        incoming.marginTop = static_cast<int16_t>(incoming.marginTop + lineHeight);
+      }
 
+      currentTextBlock->setBlockStyle(style.getCombinedBlockStyle(incoming, BlockStyle::CombineAxis::Vertical));
+
+      flushPendingAnchor();
+      return;
+    }
+
+    // <li> added a bullet as the first word, making the block non-empty. When a nested
+    // block-level child (<p>, <div>, etc.) opens, reuse the block instead of flushing
+    // the bullet to its own line. The bullet stays inline with the child's text.
+    if (listItemBulletOnly) {
+      const auto style = currentTextBlock->getBlockStyle();
+      currentTextBlock->setBlockStyle(style.getCombinedBlockStyle(blockStyle, BlockStyle::CombineAxis::Vertical));
+      listItemBulletOnly = false;
       flushPendingAnchor();
       return;
     }
@@ -587,6 +548,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
     return;
   }
   wordsExtractedInBlock = 0;
+  listItemBulletOnly = false;
 }
 
 void ChapterHtmlSlimParser::finalizeCurrentTableCell() {
@@ -1083,6 +1045,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         if (self->shouldRecordAnchor(name, idValue)) {
           // Defer both anchor recording and TOC page breaks until startNewTextBlock,
           // after the previous block is flushed to pages via makePages().
+          // Consecutive non-block elements can supply another ID before that happens;
+          // retain the displaced anchor instead of silently overwriting it.
+          if (!self->pendingAnchorId.empty()) {
+            self->flushPendingAnchor();
+          }
           self->pendingAnchorId = idValue;
         }
       }
@@ -1107,6 +1074,23 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Skip elements with display:none before all fast paths (tables, links, etc.).
   if (cssStyle.hasDisplay() && cssStyle.display == CssDisplay::None) {
     self->skipUntilDepth = self->depth;
+    self->depth += 1;
+    return;
+  }
+
+  if (strcmp(name, "ruby") == 0) {
+    self->flushPartWordBuffer();
+    self->inRuby = true;
+    self->rubyStartWordIndex = self->currentTextBlock ? static_cast<int>(self->currentTextBlock->size()) : 0;
+    if (self->currentTextBlock) self->currentTextBlock->ensureRubyCapacity();
+    self->rubyTextBuffer.clear();
+    self->depth += 1;
+    return;
+  }
+  if (strcmp(name, "rt") == 0) {
+    self->flushPartWordBuffer();
+    self->collectingRubyText = true;
+    self->rubyTextBuffer.clear();
     self->depth += 1;
     return;
   }
@@ -1204,10 +1188,17 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       for (int i = 0; atts[i]; i += 2) {
         if (strcmp(atts[i], "src") == 0) {
           src = atts[i + 1];
+        } else if ((strcmp(atts[i], "href") == 0 || strcmp(atts[i], "xlink:href") == 0) && src.empty()) {
+          src = atts[i + 1];
         } else if (strcmp(atts[i], "alt") == 0) {
           alt = atts[i + 1];
         }
       }
+
+      // SVG image references may include a fragment identifier. The fragment
+      // selects content inside the resource, while extraction needs its path.
+      const size_t fragmentPos = src.find('#');
+      if (fragmentPos != std::string::npos) src.erase(fragmentPos);
 
       // Accessibility-only role/aria-hidden attributes do not hide visual content.
       // CSS display:none and the reader's image setting remain the visual controls.
@@ -1219,16 +1210,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       }
 
       // Skip image if CSS display:none
-      if (self->cssParser) {
-        CssStyle imgDisplayStyle = self->cssParser->resolveStyle("img", classAttr);
-        if (!styleAttr.empty()) {
-          imgDisplayStyle.applyOver(CssParser::parseInlineStyle(styleAttr));
-        }
-        if (imgDisplayStyle.hasDisplay() && imgDisplayStyle.display == CssDisplay::None) {
-          self->skipUntilDepth = self->depth;
-          self->depth += 1;
-          return;
-        }
+      if (cssStyle.hasDisplay() && cssStyle.display == CssDisplay::None) {
+        self->skipUntilDepth = self->depth;
+        self->depth += 1;
+        return;
       }
 
       if (!src.empty() && self->imageRendering != 1) {
@@ -1279,11 +1264,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 int displayWidth = 0;
                 int displayHeight = 0;
                 const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
-                CssStyle imgStyle = self->cssParser ? self->cssParser->resolveStyle("img", classAttr) : CssStyle{};
-                // Merge inline style (e.g. style="height: 2em") so it overrides stylesheet rules
-                if (!styleAttr.empty()) {
-                  imgStyle.applyOver(CssParser::parseInlineStyle(styleAttr));
-                }
+                const CssStyle& imgStyle = cssStyle;
                 const bool hasCssHeight = imgStyle.hasImageHeight();
                 const bool hasCssWidth = imgStyle.hasImageWidth();
 
@@ -1597,7 +1578,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         // flush word preceding <br/> to currentTextBlock before calling startNewTextBlock
         self->flushPartWordBuffer();
       }
-      self->startNewTextBlock(self->blockStyleStack.back().withoutBottom());
+      // Tag the new block so startNewTextBlock can inject a full line-height gap if
+      // the block remains empty (i.e. <br> is a section separator between paragraphs).
+      // If the block gets text added before the next block opens it becomes non-empty,
+      // goes through makePages() normally, and the flag has no effect (inline <br> case).
+      BlockStyle brStyle = self->blockStyleStack.back();
+      brStyle.fromBrElement = true;
+      self->startNewTextBlock(brStyle);
     } else {
       self->currentCssStyle = cssStyle;
       const auto accumulated = self->blockStyleStack.back().getCombinedBlockStyle(userAlignmentBlockStyle,
@@ -1608,6 +1595,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
       if (strcmp(name, "li") == 0) {
         self->currentTextBlock->addWord("\xe2\x80\xa2", EpdFontFamily::REGULAR);
+        self->listItemBulletOnly = true;
       }
     }
   } else if (matches(name, UNDERLINE_TAGS, std::size(UNDERLINE_TAGS))) {
@@ -1784,6 +1772,11 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     return;
   }
 
+  if (self->collectingRubyText) {
+    self->rubyTextBuffer.append(s, len);
+    return;
+  }
+
   // Collect footnote link display text (for the number label)
   // Skip whitespace and brackets to normalize noterefs like "[1]" → "1"
   if (self->insideFootnoteLink) {
@@ -1913,12 +1906,14 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         }
         self->partWordBufferIndex = safeLen;
         self->flushPartWordBuffer();
+        self->nextWordContinues = true;
         for (int j = 0; j < overflow; j++) {
           self->partWordBuffer[j] = saved[j];
         }
         self->partWordBufferIndex = overflow;
       } else {
         self->flushPartWordBuffer();
+        self->nextWordContinues = true;
       }
     }
 
@@ -1970,6 +1965,30 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
 
   if (const char* colon = std::strrchr(name, ':')) {
     name = colon + 1;
+  }
+
+  if (strcmp(name, "rt") == 0) {
+    self->collectingRubyText = false;
+    if (self->inRuby && self->currentTextBlock) {
+      const int currentWordCount = static_cast<int>(self->currentTextBlock->size());
+      const int baseWordCount = currentWordCount - self->rubyStartWordIndex;
+      const std::string cleanRuby = trimAndNormalize(self->rubyTextBuffer);
+      if (!cleanRuby.empty() && baseWordCount > 0) {
+        self->currentTextBlock->setRubyGroupAt(static_cast<size_t>(self->rubyStartWordIndex),
+                                               static_cast<size_t>(baseWordCount), cleanRuby);
+        self->rubyStartWordIndex = currentWordCount;
+      }
+    }
+    self->rubyTextBuffer.clear();
+    self->depth -= 1;
+    return;
+  }
+  if (strcmp(name, "ruby") == 0 && self->inRuby) {
+    self->inRuby = false;
+    self->rubyStartWordIndex = -1;
+    self->rubyTextBuffer.clear();
+    self->depth -= 1;
+    return;
   }
 
   // Check if any style state will change after we decrement depth
@@ -2101,13 +2120,27 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
         self->currentTextBlock->setBlockStyle(style.addBottom(self->blockStyleStack.back()));
       }
       self->blockStyleStack.pop_back();
+      // Subsequent bare text must inherit the parent, not the style of the
+      // block that just closed (alignment, margins, and padding included).
+      self->startNewTextBlock(self->blockStyleStack.back());
+    }
+
+    // </li> closes: if the bullet never got inline text (empty <li> or <li> with only
+    // block children that were flushed), clear the flag so the next sibling doesn't
+    // merge into this block.
+    if (strcmp(name, "li") == 0) {
+      self->listItemBulletOnly = false;
     }
   }
 }
 
-bool ChapterHtmlSlimParser::parseAndBuildPages() {
+ChapterHtmlSlimParser::~ChapterHtmlSlimParser() { abortParse(); }
+
+bool ChapterHtmlSlimParser::beginParse() {
+  abortParse();
   lastLongParseServiceMs = 0;
   collectReferencedAnchors();
+  lowMemoryAbort = false;
 
   // Initialize block style stack with a root entry representing "no ancestor block elements".
   // The user's paragraph alignment is set as the default so child elements without explicit
@@ -2126,14 +2159,12 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   paragraphAlignmentBlockStyle.alignment = align;
   startNewTextBlock(paragraphAlignmentBlockStyle);
 
-  XML_Parser parser = XML_ParserCreate(nullptr);
-  int done;
-
-  if (!parser) {
+  xmlParser_ = XML_ParserCreate(nullptr);
+  if (!xmlParser_) {
     LOG_ERR("EHP", "Couldn't allocate memory for parser");
     return false;
   }
-  activeParser = parser;
+  activeParser = xmlParser_;
   xpathBodyDepth = -1;
   lastBodyChildByteOffset = 0;
   xpathParagraphIndex = 0;
@@ -2141,73 +2172,76 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 
   // Handle HTML entities (like &nbsp;) that aren't in XML spec or DTD
   // Using DefaultHandlerExpand preserves normal entity expansion from DOCTYPE
-  XML_SetDefaultHandlerExpand(parser, defaultHandlerExpand);
+  XML_SetDefaultHandlerExpand(xmlParser_, defaultHandlerExpand);
 
-  FsFile file;
-  if (!Storage.openFileForRead("EHP", filepath, file)) {
-    activeParser = nullptr;
-    destroyXmlParser(parser);
+  if (!Storage.openFileForRead("EHP", filepath, parseFile_)) {
+    abortParse();
     return false;
   }
 
   // Get file size to decide whether to show indexing popup.
-  if (popupFn && file.size() >= MIN_SIZE_FOR_POPUP) {
+  if (popupFn && parseFile_.size() >= MIN_SIZE_FOR_POPUP) {
     popupFn();
   }
 
-  XML_SetUserData(parser, this);
-  XML_SetElementHandler(parser, startElement, endElement);
-  XML_SetCharacterDataHandler(parser, characterData);
+  XML_SetUserData(xmlParser_, this);
+  XML_SetElementHandler(xmlParser_, startElement, endElement);
+  XML_SetCharacterDataHandler(xmlParser_, characterData);
 
-  // Compute the time taken to parse and build pages
-  const uint32_t chapterStartTime = millis();
-  do {
-    void* const buf = XML_GetBuffer(parser, PARSE_BUFFER_SIZE);
-    if (!buf) {
-      LOG_ERR("EHP", "Couldn't allocate memory for buffer");
-      activeParser = nullptr;
-      destroyXmlParser(parser);
-      file.close();
-      return false;
-    }
+  parseStartTime_ = millis();
+  return true;
+}
 
-    const size_t len = file.read(buf, PARSE_BUFFER_SIZE);
+ChapterHtmlSlimParser::ParseStatus ChapterHtmlSlimParser::parseStep() {
+  if (!xmlParser_ || !parseFile_) return ParseStatus::Error;
+  void* const buf = XML_GetBuffer(xmlParser_, PARSE_BUFFER_SIZE);
+  if (!buf) {
+    LOG_ERR("EHP", "Couldn't allocate memory for buffer");
+    return ParseStatus::Error;
+  }
 
-    if (len == 0 && file.available() > 0) {
-      LOG_ERR("EHP", "File read error");
-      activeParser = nullptr;
-      destroyXmlParser(parser);
-      file.close();
-      return false;
-    }
+  const size_t len = parseFile_.read(buf, PARSE_BUFFER_SIZE);
 
-    done = file.available() == 0;
+  if (len == 0 && parseFile_.available() > 0) {
+    LOG_ERR("EHP", "File read error");
+    return ParseStatus::Error;
+  }
 
-    if (XML_ParseBuffer(parser, static_cast<int>(len), done) == XML_STATUS_ERROR) {
-      LOG_ERR("EHP", "Parse error at line %lu:\n%s", XML_GetCurrentLineNumber(parser),
-              XML_ErrorString(XML_GetErrorCode(parser)));
-      activeParser = nullptr;
-      destroyXmlParser(parser);
-      file.close();
-      return false;
-    }
+  const bool done = parseFile_.available() == 0;
 
-    serviceLongParse("parse buffer");
+  if (XML_ParseBuffer(xmlParser_, static_cast<int>(len), done) == XML_STATUS_ERROR) {
+    LOG_ERR("EHP", "Parse error at line %lu:\n%s", XML_GetCurrentLineNumber(xmlParser_),
+            XML_ErrorString(XML_GetErrorCode(xmlParser_)));
+    return ParseStatus::Error;
+  }
 
-    if (lowMemoryAbort) {
-      const auto heap = MemoryBudget::snapshot();
-      LOG_ERR("EHP", "Aborting parse because of low heap (free=%u, maxAlloc=%u)", heap.freeHeap, heap.maxAllocHeap);
-      activeParser = nullptr;
-      destroyXmlParser(parser);
-      file.close();
-      return false;
-    }
-  } while (!done);
-  LOG_DBG("EHP", "Time to parse and build pages: %lu ms", millis() - chapterStartTime);
+  serviceLongParse("parse buffer");
 
+  if (lowMemoryAbort) {
+    const auto heap = MemoryBudget::snapshot();
+    LOG_ERR("EHP", "Aborting parse because of low heap (free=%u, maxAlloc=%u)", heap.freeHeap, heap.maxAllocHeap);
+    return ParseStatus::Error;
+  }
+  return done ? ParseStatus::Done : ParseStatus::More;
+}
+
+void ChapterHtmlSlimParser::abortParse() {
   activeParser = nullptr;
-  destroyXmlParser(parser);
-  file.close();
+  if (xmlParser_) {
+    destroyXmlParser(xmlParser_);
+    xmlParser_ = nullptr;
+  }
+  if (parseFile_.isOpen()) parseFile_.close();
+}
+
+bool ChapterHtmlSlimParser::finishParse() {
+  LOG_DBG("EHP", "Time to parse and build pages: %lu ms", millis() - parseStartTime_);
+  activeParser = nullptr;
+  if (xmlParser_) {
+    destroyXmlParser(xmlParser_);
+    xmlParser_ = nullptr;
+  }
+  if (parseFile_.isOpen()) parseFile_.close();
 
   // Process last page if there is still text
   if (!lowMemoryAbort && currentTextBlock) {
@@ -2229,14 +2263,34 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   return !lowMemoryAbort;
 }
 
+bool ChapterHtmlSlimParser::parseAndBuildPages() {
+  if (!beginParse()) return false;
+  for (;;) {
+    const ParseStatus status = parseStep();
+    if (status == ParseStatus::Error) {
+      abortParse();
+      return false;
+    }
+    if (status == ParseStatus::Done) break;
+  }
+  return finishParse();
+}
+
 void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   serviceLongParse("line layout");
+
+  if (!line || !line->valid()) {
+    lowMemoryAbort = true;
+    LOG_ERR("EHP", "Aborting layout: could not allocate flattened text line");
+    return;
+  }
 
   if (shouldAbortForLowMemory("line layout")) {
     return;
   }
 
-  const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
+  const int lineHeight =
+      renderer.getLineHeight(fontId) * lineCompression + line->getRubyShift(renderer.getFontAscenderSize(fontId));
 
   if (!currentPage) {
     if (!startNewPage("line layout")) {

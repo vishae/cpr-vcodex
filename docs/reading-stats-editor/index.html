@@ -3395,10 +3395,17 @@
         legacyReadingDays: (formatVersion < 6 ? legacyReadingDays : (Array.isArray(doc.legacyReadingDays) ? doc.legacyReadingDays : []))
           .map(normalizeDay)
           .filter(day => day.dayOrdinal && day.readingMs),
-        sessionLog: sessionLog.map(entry => ({
-          dayOrdinal: toUInt(entry && entry.dayOrdinal),
-          sessionMs: toUInt(entry && entry.sessionMs)
-        })).filter(entry => entry.dayOrdinal && entry.sessionMs),
+        sessionLog: sessionLog.map(entry => {
+          const normalizedEntry = {
+            dayOrdinal: toUInt(entry && entry.dayOrdinal),
+            sessionMs: toUInt(entry && entry.sessionMs)
+          };
+          const bookId = String(entry && entry.bookId || "");
+          const path = String(entry && entry.path || "");
+          if (bookId) normalizedEntry.bookId = bookId;
+          if (path) normalizedEntry.path = path;
+          return normalizedEntry;
+        }).filter(entry => entry.dayOrdinal && entry.sessionMs),
         books: books.map(normalizeBook).filter(book => book.path)
       };
       rebuildAggregatedDays(normalized, {legacyTotals: formatVersion < 6});

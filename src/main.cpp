@@ -353,6 +353,8 @@ void setup() {
     activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
     return;
   }
+  // Stamp all SdFat creates/syncs with RTC time when available, else last Sync Day.
+  TimeUtils::registerSdFatDateTimeCallback();
 
   HalSystem::checkPanic();
   BootRecovery::initialize();

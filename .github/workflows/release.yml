@@ -90,11 +90,7 @@ jobs:
           budget_md="artifacts/${tag}-firmware-budget.md"
           notes_file="$(mktemp)"
 
-          {
-            echo "CPR-vCodex firmware release ${tag}."
-            echo
-            echo "The browser auto-flash page is committed with the matching local firmware copy for this tag."
-          } > "${notes_file}"
+          python3 scripts/release_notes_from_changelog.py --tag "${tag}" > "${notes_file}"
 
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release upload "${tag}" \
@@ -103,6 +99,7 @@ jobs:
               "${budget_json}#${tag}-firmware-budget.json" \
               "${budget_md}#${tag}-firmware-budget.md" \
               --clobber
+            gh release edit "${tag}" --title "${tag}" --notes-file "${notes_file}"
           else
             gh release create "${tag}" \
               "${artifact}#${tag}.bin" \
