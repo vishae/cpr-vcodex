@@ -525,8 +525,9 @@ bool Epub::loadMetadataOnly() {
   }
 
   // Otherwise parse just the OPF into core metadata (title/author/cover). No
-  // spine-size build, no TOC pass, and no disk cache is written — so the reader
-  // still builds the full cache on first open.
+  // spine-size build and no TOC pass — but we still create the cache directory
+  // so thumbnail generation can write its temp cover + the thumb BMP into it.
+  setupCacheDir();
   BookMetadataCache::BookMetadata metadata;
   if (!parseContentOpf(metadata, /*writeSpineEntries=*/false)) {
     LOG_ERR("EBP", "loadMetadataOnly: could not parse content.opf for %s", filepath.c_str());
