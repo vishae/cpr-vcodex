@@ -311,5 +311,23 @@ void MosaicBrowserActivity::render(RenderLock&&) {
                                             books.empty() ? "" : tr(STR_DIR_UP), books.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
+  // First-time indexing overlay: the metadata-cache build for never-opened
+  // books blocks the loop (single-core), so covers appear one at a time and the
+  // grid isn't navigable until the visible page finishes. Show a centered popup
+  // over the grid so it's clear what's happening.
+  if (visiblePagePending() >= 0) {
+    const int pageHeight = renderer.getScreenHeight();
+    const int lineH = renderer.getLineHeight(UI_10_FONT_ID);
+    const int pad = 14;
+    const int boxW = std::min(pageWidth - 40, 340);
+    const int boxH = lineH * 2 + pad * 2 + 4;
+    const int boxX = (pageWidth - boxW) / 2;
+    const int boxY = (pageHeight - boxH) / 2;
+    renderer.fillRoundedRect(boxX, boxY, boxW, boxH, 8, Color::White);
+    renderer.drawRoundedRect(boxX, boxY, boxW, boxH, 2, 8, true);
+    renderer.drawCenteredText(UI_10_FONT_ID, boxY + pad, tr(STR_COVER_GRID_INDEXING));
+    renderer.drawCenteredText(UI_10_FONT_ID, boxY + pad + lineH + 4, tr(STR_COVER_GRID_INDEXING_WAIT));
+  }
+
   renderer.displayBuffer();
 }
