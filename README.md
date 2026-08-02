@@ -1,4 +1,4 @@
-> **This is a personal fork of [franssjz/cpr-vcodex](https://github.com/franssjz/cpr-vcodex)**, based on release [`1.3.0.35-cpr-vcodex`](https://github.com/franssjz/cpr-vcodex/releases/tag/1.3.0.35-cpr-vcodex). For the full feature set, install instructions, dictionary/font setup, and everything else CPR-vCodex does, see franssjz's repo and his [README](https://github.com/franssjz/cpr-vcodex#readme) -- this fork doesn't change any of that. Below is only what's different here.
+> **This is a personal fork of [franssjz/cpr-vcodex](https://github.com/franssjz/cpr-vcodex)**, based on release [`1.5.0.5-cpr-vcodex`](https://github.com/franssjz/cpr-vcodex/releases/tag/1.5.0.5-cpr-vcodex). For the full feature set, install instructions, dictionary/font setup, and everything else CPR-vCodex does, see franssjz's repo and his [README](https://github.com/franssjz/cpr-vcodex#readme) -- this fork doesn't change any of that. Below is only what's different here.
 
 # cpr-vcodex (personal fork)
 
