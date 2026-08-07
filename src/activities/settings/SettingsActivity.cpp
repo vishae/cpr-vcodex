@@ -23,6 +23,7 @@
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
+#include "MosaicMetadataGenerateActivity.h"
 #include "OpdsServerListActivity.h"
 #include "OtaUpdateActivity.h"
 #include "ReadingStatsImportActivity.h"
@@ -63,6 +64,7 @@ const StrId SettingsActivity::categoryNames[categoryCount] = {
 
 namespace {
 constexpr size_t SETTINGS_TAB_MAX_CHARS = 10;
+constexpr unsigned long PREV_TAB_LONG_PRESS_MS = 1000;
 
 const std::vector<SettingInfo>& getDeviceDisplaySettings() {
   static const std::vector<SettingInfo> settings = {
@@ -229,6 +231,10 @@ const std::vector<SettingInfo>& getDeviceOnlyAppSettings() {
       SettingInfo::Action(StrId::STR_SCREEN_CLEAN, SettingAction::ScreenClean),
       SettingInfo::Action(StrId::STR_SLEEP, SettingAction::SleepApp),
       SettingInfo::Action(StrId::STR_IF_FOUND_RETURN_ME, SettingAction::IfFound),
+      SettingInfo::Section(StrId::STR_COVER_GRID),
+      SettingInfo::Enum(StrId::STR_MOSAIC_GROUPING, &CrossPointSettings::mosaicDefaultGrouping,
+                        {StrId::STR_NONE_OPT, StrId::STR_BY_AUTHOR, StrId::STR_BY_SERIES}),
+      SettingInfo::Action(StrId::STR_GENERATE_METADATA, SettingAction::GenerateMosaicMetadata),
       SettingInfo::Section(StrId::STR_FLASHCARDS),
       SettingInfo::Action(StrId::STR_FLASHCARDS, SettingAction::Flashcards),
       SettingInfo::Enum(StrId::STR_STUDY_MODE, &CrossPointSettings::flashcardStudyMode,
@@ -423,6 +429,7 @@ void SettingsActivity::onEnter() {
   // Reset selection to first category
   selectedCategoryIndex = 0;
   selectedSettingIndex = 0;
+  prevTabLongPressHandled = false;
   enterCategory(0);
 
   // Trigger first update
@@ -593,7 +600,23 @@ void SettingsActivity::loop() {
     }
   }
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+  // Long-press Back at the tab row: previous tab instead of Home. The action's
+  // own effect (leaving the tab row) doesn't self-guard against repeat-firing
+  // the way FileBrowserActivity's go-to-root does, so use an explicit one-shot flag.
+  if (selectedSettingIndex == 0 && mappedInput.isPressed(MappedInputManager::Button::Back) &&
+      mappedInput.getHeldTime() >= PREV_TAB_LONG_PRESS_MS && !prevTabLongPressHandled) {
+    selectedCategoryIndex = ButtonNavigator::previousIndex(selectedCategoryIndex, categoryCount);
+    enterCategory(selectedCategoryIndex);
+    prevTabLongPressHandled = true;
+    requestUpdate();
+    return;
+  }
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (prevTabLongPressHandled) {
+      prevTabLongPressHandled = false;
+      return;
+    }
     if (selectedSettingIndex > 0) {
       selectedSettingIndex = 0;
       requestUpdate();
@@ -719,6 +742,10 @@ void SettingsActivity::toggleCurrentSetting() {
                 SETTINGS.saveToFile();
               }
             });
+        break;
+      case SettingAction::GenerateMosaicMetadata:
+        startActivityForResult(std::make_unique<MosaicMetadataGenerateActivity>(renderer, mappedInput),
+                               resultHandler);
         break;
       case SettingAction::ClockSync:
         startActivityForResult(std::make_unique<ClockSyncActivity>(renderer, mappedInput), resultHandler);

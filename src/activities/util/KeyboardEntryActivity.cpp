@@ -127,7 +127,7 @@ bool KeyboardEntryActivity::handleKeyPress() {
       case SpecialKeyType::Space:
         delPressCount = 0;
         hintVisible = false;
-        if (inputType == InputType::Url) {
+        if (supportsSnippetMode()) {
           urlMode = !urlMode;
           if (urlMode) {
             symMode = false;
@@ -164,8 +164,8 @@ bool KeyboardEntryActivity::handleKeyPress() {
     delPressCount = 0;
     hintVisible = false;
     const int idx = selectedCol + selectedRow * 3;
-    if (idx < URL_SNIPPET_COUNT) {
-      insertString(urlSnippets[idx]);
+    if (idx < activeSnippetCount()) {
+      insertString(activeSnippets()[idx]);
     }
     return true;
   }
@@ -572,7 +572,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   } else if (symMode) {
     tipCount = !text.empty() ? 1 : 0;
   } else {
-    tipCount = 1 + (inputType == InputType::Url ? 1 : 0) + (!text.empty() ? 1 : 0);
+    tipCount = 1 + (supportsSnippetMode() ? 1 : 0) + (!text.empty() ? 1 : 0);
   }
 
   if (tipCount > 0) {
@@ -602,8 +602,8 @@ void KeyboardEntryActivity::render(RenderLock&&) {
       }
       drawTip(altCharTip, y);
       y += tipsLh;
-      if (inputType == InputType::Url) {
-        drawTip(tr(STR_KB_HINT_URL_SNIPPETS), y);
+      if (supportsSnippetMode()) {
+        drawTip(inputType == InputType::Url ? tr(STR_KB_HINT_URL_SNIPPETS) : tr(STR_KB_HINT_WORD_SNIPPETS), y);
         y += tipsLh;
       }
       if (!text.empty()) {
@@ -641,8 +641,8 @@ void KeyboardEntryActivity::render(RenderLock&&) {
 
       if (urlMode) {
         const int snippetIdx = col + row * 3;
-        if (snippetIdx < URL_SNIPPET_COUNT) {
-          GUI.drawKeyboardKey(renderer, Rect{keyX, rowY, keyWidth, keyHeight}, urlSnippets[snippetIdx],
+        if (snippetIdx < activeSnippetCount()) {
+          GUI.drawKeyboardKey(renderer, Rect{keyX, rowY, keyWidth, keyHeight}, activeSnippets()[snippetIdx],
                               activeKeySelected, nullptr);
         }
       } else {
@@ -676,8 +676,8 @@ void KeyboardEntryActivity::render(RenderLock&&) {
       {(symMode || urlMode || inputType == InputType::Url) ? KeyboardKeyType::Disabled : KeyboardKeyType::Shift,
        (symMode || urlMode || inputType == InputType::Url) ? shiftString[0] : shiftString[shiftState]},
       {KeyboardKeyType::Mode, urlMode ? "abc" : (symMode ? "abc" : "#@!")},
-      {inputType == InputType::Url ? KeyboardKeyType::Mode : KeyboardKeyType::Space,
-       inputType == InputType::Url ? "URL" : nullptr},
+      {supportsSnippetMode() ? KeyboardKeyType::Mode : KeyboardKeyType::Space,
+       inputType == InputType::Url ? "URL" : (inputType == InputType::FolderName ? tr(STR_KB_WORDS_KEY) : nullptr)},
       {KeyboardKeyType::Del, nullptr},
       {KeyboardKeyType::Ok, tr(STR_OK_BUTTON)},
   };
@@ -710,8 +710,8 @@ void KeyboardEntryActivity::render(RenderLock&&) {
                           nullptr, bottomKeys[selectedCol].themeType, true);
     } else if (urlMode) {
       const int idx = selectedCol + selectedRow * 3;
-      if (idx < URL_SNIPPET_COUNT) {
-        GUI.drawKeyboardKey(renderer, Rect{selKeyX, selKeyY, selKeyW, selKeyH}, urlSnippets[idx], true, nullptr,
+      if (idx < activeSnippetCount()) {
+        GUI.drawKeyboardKey(renderer, Rect{selKeyX, selKeyY, selKeyW, selKeyH}, activeSnippets()[idx], true, nullptr,
                             KeyboardKeyType::Normal, true);
       }
     } else {

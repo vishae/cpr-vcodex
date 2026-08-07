@@ -557,6 +557,7 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
     s.sleepDirectory[sizeof(s.sleepDirectory) - 1] = '\0';
   }
   loadString("libraryFolder", s.libraryFolder, sizeof(s.libraryFolder));
+  loadEnum("mosaicDefaultGrouping", s.mosaicDefaultGrouping, CrossPointSettings::MOSAIC_GROUPING_COUNT);
   s.sleepImageOrder = clamp(doc["sleepImageOrder"] | static_cast<uint8_t>(S::SLEEP_IMAGE_SHUFFLE),
                             S::SLEEP_IMAGE_ORDER_COUNT, S::SLEEP_IMAGE_SHUFFLE);
   s.timeZonePreset =
@@ -919,6 +920,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["autoSyncDay"] = s.autoSyncDay;
   doc["sleepDirectory"] = s.sleepDirectory;
   doc["libraryFolder"] = s.libraryFolder;
+  doc["mosaicDefaultGrouping"] = s.mosaicDefaultGrouping;
   doc["sleepImageOrder"] = s.sleepImageOrder;
   doc["timeZonePreset"] = TimeZoneRegistry::clampPresetIndex(s.timeZonePreset);
   doc["appsHubShortcutOrder"] = s.appsHubShortcutOrder;

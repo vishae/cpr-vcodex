@@ -16,7 +16,7 @@ struct KeyDef {
 
 enum class SpecialKeyType { Shift, Mode, Space, Del, Ok };
 
-enum class InputType { Text, Password, Url };
+enum class InputType { Text, Password, Url, FolderName };
 
 class KeyboardEntryActivity : public Activity {
  public:
@@ -70,10 +70,25 @@ class KeyboardEntryActivity : public Activity {
   size_t savedCursorPos = 0;
   size_t rightStartCursorPos = 0;
 
-  bool urlMode = false;
+  bool urlMode = false;  // also used as the generic "snippet grid is showing" flag for FolderName
   static constexpr int URL_SNIPPET_COUNT = 9;
   static constexpr const char* const urlSnippets[URL_SNIPPET_COUNT] = {
       "https://", "www.", ".com", "http://", "192.168.", ".org", "/opds", ":8080", ".net"};
+
+  // Quick-insert folder-name suggestions (CGV-011), same 3x3 snippet-grid UI as urlSnippets.
+  static constexpr int FOLDER_SNIPPET_COUNT = 6;
+  static constexpr const char* const folderNameSnippets[FOLDER_SNIPPET_COUNT] = {
+      "books", "library", "fiction", "non-fiction", "manga", "web-novels"};
+
+  const char* const* activeSnippets() const {
+    return inputType == InputType::FolderName ? folderNameSnippets : urlSnippets;
+  }
+  int activeSnippetCount() const {
+    return inputType == InputType::FolderName ? FOLDER_SNIPPET_COUNT : URL_SNIPPET_COUNT;
+  }
+  bool supportsSnippetMode() const {
+    return inputType == InputType::Url || inputType == InputType::FolderName;
+  }
 
   int delPressCount = 0;
   bool hintVisible = false;

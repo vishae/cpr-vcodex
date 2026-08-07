@@ -49,6 +49,7 @@ enum class SettingAction {
   IfFound,
   DownloadFonts,
   LibraryFolder,
+  GenerateMosaicMetadata,
 };
 
 struct SettingInfo {
@@ -195,6 +196,10 @@ class SettingsActivity final : public Activity {
 
   static constexpr int categoryCount = 5;
   static const StrId categoryNames[categoryCount];
+
+  // One-shot guard for long-press-Back-at-tab-row -> previous tab (avoids
+  // repeat-firing every tick while the button stays held past the threshold).
+  bool prevTabLongPressHandled = false;
 
   void enterCategory(int categoryIndex);
   bool isSelectableSetting(int settingIndex) const;

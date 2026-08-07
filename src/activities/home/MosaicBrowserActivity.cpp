@@ -12,8 +12,10 @@
 #include <cstring>
 
 #include "CrossPointSettings.h"
-#include "LibraryFolderMissingActivity.h"
 #include "MappedInputManager.h"
+#include "MosaicGridMetrics.h"
+#include "MosaicGroupPickerActivity.h"
+#include "MosaicLibraryScan.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "components/UITheme.h"
 #include "components/icons/cover.h"
@@ -32,6 +34,29 @@ std::string fileStem(const std::string& path) {
   if (dot != std::string::npos && dot > 0) name = name.substr(0, dot);
   return name;
 }
+
+// Greedy word-wrap for the info dialog (CGV-011) — the dialog's line count varies
+// with path length/font, so lines are measured and wrapped rather than fixed.
+std::vector<std::string> wrapText(GfxRenderer& renderer, int fontId, const std::string& text, int maxWidth) {
+  std::vector<std::string> lines;
+  std::string current;
+  size_t pos = 0;
+  while (pos < text.size()) {
+    const size_t spacePos = text.find(' ', pos);
+    const std::string word = text.substr(pos, spacePos == std::string::npos ? std::string::npos : spacePos - pos);
+    const std::string candidate = current.empty() ? word : current + " " + word;
+    if (!current.empty() && renderer.getTextWidth(fontId, candidate.c_str()) > maxWidth) {
+      lines.push_back(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+    if (spacePos == std::string::npos) break;
+    pos = spacePos + 1;
+  }
+  if (!current.empty()) lines.push_back(current);
+  return lines;
+}
 }  // namespace
 
 void MosaicBrowserActivity::computeLayout() {
@@ -39,26 +64,15 @@ void MosaicBrowserActivity::computeLayout() {
   const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
 
-  const int side = m.contentSidePadding;
   const int contentTop = m.topPadding + m.headerHeight + m.verticalSpacing;
   const int contentBottom = pageHeight - m.buttonHintsHeight - m.verticalSpacing;
-  const int contentW = pageWidth - 2 * side;
   const int contentH = contentBottom - contentTop;
 
   labelH = renderer.getLineHeight(SMALL_FONT_ID);
 
-  const int maxCoverW = (contentW - (GRID_COLS - 1) * gapX) / GRID_COLS;
-  const int maxCellH = (contentH - (GRID_ROWS - 1) * gapY) / GRID_ROWS;
-  const int coverBudgetH = std::max(16, maxCellH - labelH - labelGap);
-
-  // Fit a 2:3 cover inside the per-cell budget (width- or height-limited).
-  coverW = std::min(maxCoverW, coverBudgetH * 2 / 3);
-  if (coverW < 8) coverW = 8;
-  coverH = coverW * 3 / 2;
-  if (coverH > coverBudgetH) {
-    coverH = coverBudgetH;
-    coverW = coverH * 2 / 3;
-  }
+  const auto coverSize = MosaicGridMetrics::computeCoverSize(renderer);
+  coverW = coverSize.width;
+  coverH = coverSize.height;
 
   const int cellH = coverH + labelGap + labelH;
   const int totalGridW = GRID_COLS * coverW + (GRID_COLS - 1) * gapX;
@@ -72,46 +86,8 @@ void MosaicBrowserActivity::loadBooks() {
 
   // Recursive walk of the library folder (CGV-004), skipping hidden/system
   // folders and the completed-books directory so those never appear in the grid.
-  std::vector<std::string> stack;
-  stack.push_back(libraryPath);
-  char nameBuf[512];
-
-  while (!stack.empty()) {
-    const std::string dirPath = std::move(stack.back());
-    stack.pop_back();
-
-    auto dir = Storage.open(dirPath.c_str());
-    if (!dir || !dir.isDirectory()) {
-      if (dir) dir.close();
-      continue;
-    }
-    dir.rewindDirectory();
-
-    for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
-      const bool isDir = file.isDirectory();
-      file.getName(nameBuf, sizeof(nameBuf));
-
-      if (nameBuf[0] == '.' || strcmp(nameBuf, "System Volume Information") == 0 ||
-          strcmp(nameBuf, "finished_books") == 0) {
-        file.close();
-        continue;
-      }
-
-      std::string full = dirPath;
-      if (full.empty() || full.back() != '/') full += "/";
-      full += nameBuf;
-
-      if (isDir) {
-        stack.push_back(full);
-      } else {
-        std::string_view filename{nameBuf};
-        if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename)) {
-          books.push_back(GridBook{full, fileStem(full), "", false});
-        }
-      }
-      file.close();
-    }
-    dir.close();
+  for (auto& path : MosaicLibraryScan::scanBookPaths(libraryPath)) {
+    books.push_back(GridBook{path, fileStem(path), "", false});
   }
 
   std::sort(books.begin(), books.end(),
@@ -160,39 +136,123 @@ void MosaicBrowserActivity::onEnter() {
   computeLayout();
   selectorIndex = 0;
   lastInputMs = millis();
+  grouping = SETTINGS.mosaicDefaultGrouping;
   checkLibraryFolder();
 }
 
 void MosaicBrowserActivity::checkLibraryFolder() {
-  if (Storage.exists(libraryPath.c_str())) {
-    loadBooks();
+  if (!Storage.exists(libraryPath.c_str())) {
+    // Folder doesn't exist — show the small info dialog over the (empty) grid
+    // rather than a separate screen; Confirm still reaches the picker (see loop()).
+    books.clear();
+    infoDialogVisible = true;
+    infoDialogMissing = true;
     requestUpdate();
     return;
   }
 
-  startActivityForResult(std::make_unique<LibraryFolderMissingActivity>(renderer, mappedInput, libraryPath),
-                         [this](const ActivityResult& result) { onMissingFolderResult(result); });
+  loadBooks();
+  finishLoadingBooks();
 }
 
-void MosaicBrowserActivity::onMissingFolderResult(const ActivityResult& result) {
+void MosaicBrowserActivity::finishLoadingBooks() {
+  if (books.empty()) {
+    infoDialogVisible = true;
+    infoDialogMissing = false;
+    requestUpdate();
+    return;
+  }
+  infoDialogVisible = false;
+
+  if (grouping == CrossPointSettings::MOSAIC_GROUPING_NONE) {
+    requestUpdate();
+    return;
+  }
+  loadGroupMetadata();
+  launchGroupPicker();
+}
+
+// Eager metadata-only pass (title/author/series) over every scanned book, so the
+// group picker has real names to list. Only run when grouping is active — the
+// default (no grouping) path stays as cheap as before this feature.
+void MosaicBrowserActivity::loadGroupMetadata() {
+  for (auto& book : books) {
+    if (!FsHelpers::hasEpubExtension(book.path)) continue;
+
+    Epub epub(book.path, kCacheDir);
+    if (epub.loadMetadataOnly()) {
+      const std::string& title = epub.getTitle();
+      if (!title.empty()) book.label = title;
+      book.author = epub.getAuthor();
+      book.series = epub.getSeries();
+      book.seriesIndex = epub.getSeriesIndex();
+    }
+  }
+}
+
+void MosaicBrowserActivity::launchGroupPicker() {
+  std::vector<std::string> groups;
+  groups.emplace_back(tr(STR_ALL_BOOKS));
+
+  std::vector<std::string> keys;
+  keys.reserve(books.size());
+  for (const auto& book : books) {
+    std::string key = (grouping == CrossPointSettings::MOSAIC_GROUPING_SERIES) ? book.series : book.author;
+    if (key.empty()) key = tr(STR_UNKNOWN_GROUP);
+    keys.push_back(std::move(key));
+  }
+  std::sort(keys.begin(), keys.end());
+  keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+  for (auto& key : keys) groups.push_back(std::move(key));
+
+  startActivityForResult(std::make_unique<MosaicGroupPickerActivity>(renderer, mappedInput, std::move(groups)),
+                         [this](const ActivityResult& result) { onGroupPickerResult(result); });
+}
+
+void MosaicBrowserActivity::onGroupPickerResult(const ActivityResult& result) {
   if (result.isCancelled) {
     onGoHome();
     return;
   }
 
-  const auto* menu = std::get_if<MenuResult>(&result.data);
-  if (!menu || menu->action == 0) {
-    // Create it at the configured path (mkdir also creates intermediate directories).
-    Storage.mkdir(libraryPath.c_str());
-    loadBooks();
+  const auto* keyboard = std::get_if<KeyboardResult>(&result.data);
+  if (!keyboard) {
     requestUpdate();
     return;
   }
 
-  // Choose another folder.
-  startActivityForResult(
-      std::make_unique<FileBrowserActivity>(renderer, mappedInput, libraryPath, FileBrowserActivity::Mode::PickFolder),
-      [this](const ActivityResult& pickResult) { onPickFolderResult(pickResult); });
+  selectorIndex = 0;
+  const std::string allBooksLabel = tr(STR_ALL_BOOKS);
+  applyGroupFilter(keyboard->text == allBooksLabel ? "" : keyboard->text);
+  requestUpdate();
+}
+
+// Filters `books` in place down to the chosen group (empty = "All books", keeps
+// everything); when grouping by series, also re-sorts by seriesIndex so a
+// series reads in order instead of the default alphabetical-by-title sort.
+void MosaicBrowserActivity::applyGroupFilter(const std::string& group) {
+  if (group.empty()) return;
+
+  const std::string unknown = tr(STR_UNKNOWN_GROUP);
+  const bool bySeries = grouping == CrossPointSettings::MOSAIC_GROUPING_SERIES;
+  books.erase(std::remove_if(books.begin(), books.end(),
+                             [&](const GridBook& book) {
+                               std::string key = bySeries ? book.series : book.author;
+                               if (key.empty()) key = unknown;
+                               return key != group;
+                             }),
+              books.end());
+
+  if (bySeries) {
+    std::sort(books.begin(), books.end(), [](const GridBook& a, const GridBook& b) {
+      if (a.seriesIndex != b.seriesIndex) {
+        if (a.seriesIndex < 0) return false;
+        if (b.seriesIndex < 0) return true;
+        return a.seriesIndex < b.seriesIndex;
+      }
+      return a.label < b.label;
+    });
+  }
 }
 
 void MosaicBrowserActivity::onPickFolderResult(const ActivityResult& result) {
@@ -232,11 +292,24 @@ void MosaicBrowserActivity::loop() {
     lastInputMs = millis();
     if (!books.empty() && selectorIndex < books.size()) {
       onSelectBook(books[selectorIndex].path);
+    } else if (books.empty()) {
+      // Folder missing or has no books — offer the picker either way, instead
+      // of dead-ending on an empty grid with only Home to press.
+      startActivityForResult(
+          std::make_unique<FileBrowserActivity>(renderer, mappedInput, libraryPath,
+                                                FileBrowserActivity::Mode::PickFolder),
+          [this](const ActivityResult& pickResult) { onPickFolderResult(pickResult); });
     }
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     lastInputMs = millis();
+    if (infoDialogVisible) {
+      // First Back just dismisses the info dialog; a second press then goes Home.
+      infoDialogVisible = false;
+      requestUpdate();
+      return;
+    }
     onGoHome();
     return;
   }
@@ -312,7 +385,9 @@ void MosaicBrowserActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{0, m.topPadding, pageWidth, m.headerHeight}, title.c_str());
 
   if (total == 0) {
-    renderer.drawCenteredText(UI_10_FONT_ID, m.topPadding + m.headerHeight + 40, tr(STR_NO_FILES_FOUND));
+    if (!infoDialogVisible) {
+      renderer.drawCenteredText(UI_10_FONT_ID, m.topPadding + m.headerHeight + 40, tr(STR_NO_FILES_FOUND));
+    }
   } else {
     const int cellH = coverH + labelGap + labelH;
     const int pageEnd = std::min(pageStart + BOOKS_PER_PAGE, total);
@@ -362,8 +437,9 @@ void MosaicBrowserActivity::render(RenderLock&&) {
     }
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_HOME), books.empty() ? "" : tr(STR_OPEN),
-                                            books.empty() ? "" : tr(STR_DIR_UP), books.empty() ? "" : tr(STR_DIR_DOWN));
+  const auto labels =
+      mappedInput.mapLabels(infoDialogVisible ? tr(STR_BACK) : tr(STR_HOME), books.empty() ? tr(STR_CHOOSE_ANOTHER) : tr(STR_OPEN),
+                            books.empty() ? "" : tr(STR_DIR_UP), books.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   // First-time indexing overlay: the metadata-cache build for never-opened
@@ -382,6 +458,57 @@ void MosaicBrowserActivity::render(RenderLock&&) {
     renderer.drawRoundedRect(boxX, boxY, boxW, boxH, 2, 8, true);
     renderer.drawCenteredText(UI_10_FONT_ID, boxY + pad, tr(STR_COVER_GRID_INDEXING));
     renderer.drawCenteredText(UI_10_FONT_ID, boxY + pad + lineH + 4, tr(STR_COVER_GRID_INDEXING_WAIT));
+  }
+
+  // Missing/empty-folder info dialog (CGV-005/CGV-011): a small dismissable
+  // overlay, not a separate full-screen activity — same visual pattern as the
+  // indexing overlay above. Back dismisses it (see loop()); Confirm ("Browse")
+  // works whether it's showing or already dismissed.
+  if (infoDialogVisible) {
+    const int pageHeight = renderer.getScreenHeight();
+    const int lineH = renderer.getLineHeight(UI_10_FONT_ID);
+    const int pad = 14;
+    const int lineGap = 4;
+    const int boxW = std::min(pageWidth - 30, 380);
+    const int maxLineWidth = boxW - 2 * pad;
+
+    // Missing: path first ("/library doesn't exist..."). Empty: path parenthesised
+    // at the end ("No books were found in this folder (/library)") — Serena's wording.
+    const std::string body = infoDialogMissing ? libraryPath + " " + tr(STR_LIBRARY_FOLDER_MISSING_BODY)
+                                               : std::string(tr(STR_LIBRARY_FOLDER_EMPTY_BODY)) + " (" + libraryPath + ")";
+
+    std::vector<std::string> bodyLines = wrapText(renderer, UI_10_FONT_ID, body, maxLineWidth);
+    std::vector<std::string> hintLines = wrapText(renderer, UI_10_FONT_ID, tr(STR_LIBRARY_FOLDER_DIALOG_HINT), maxLineWidth);
+    std::vector<std::string> dismissLines =
+        wrapText(renderer, UI_10_FONT_ID, tr(STR_LIBRARY_FOLDER_DIALOG_DISMISS), maxLineWidth);
+
+    const int totalLines = 1 /* heading */ + static_cast<int>(bodyLines.size()) + static_cast<int>(hintLines.size()) +
+                           static_cast<int>(dismissLines.size());
+    // Content height: one row per line, plus a gap after the heading and after
+    // the body block (matches the two extra gaps inserted while drawing below).
+    const int boxH = totalLines * lineH + 2 * lineGap + pad * 2;
+    const int boxX = (pageWidth - boxW) / 2;
+    const int boxY = std::max(pad, (pageHeight - boxH) / 2);
+
+    renderer.fillRoundedRect(boxX, boxY, boxW, boxH, 8, Color::White);
+    renderer.drawRoundedRect(boxX, boxY, boxW, boxH, 2, 8, true);
+    int y = boxY + pad;
+    renderer.drawCenteredText(UI_10_FONT_ID, y, infoDialogMissing ? tr(STR_LIBRARY_FOLDER_MISSING) : tr(STR_LIBRARY_FOLDER_EMPTY),
+                              true, EpdFontFamily::BOLD);
+    y += lineH + lineGap;
+    for (const auto& line : bodyLines) {
+      renderer.drawCenteredText(UI_10_FONT_ID, y, line.c_str());
+      y += lineH;
+    }
+    y += lineGap;
+    for (const auto& line : hintLines) {
+      renderer.drawCenteredText(UI_10_FONT_ID, y, line.c_str());
+      y += lineH;
+    }
+    for (const auto& line : dismissLines) {
+      renderer.drawCenteredText(UI_10_FONT_ID, y, line.c_str());
+      y += lineH;
+    }
   }
 
   renderer.displayBuffer();

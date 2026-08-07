@@ -19,8 +19,10 @@
 //
 // Added alongside FileBrowserActivity (PID-26028, DEC-002), registered as a
 // reorderable Apps shortcut (DEC-004). Recursive scan is CGV-004. The library
-// folder is configurable with missing-folder handling (CGV-005). Grouping/sort
-// (CGV-002/003) come later.
+// folder is configurable, with a small dismissable info dialog (not a separate
+// screen) when it's missing or has no books (CGV-005/CGV-011). Grouping by
+// author/series via a two-step picker is CGV-002. Sort options (CGV-003) come
+// later.
 class MosaicBrowserActivity final : public Activity {
  public:
   static constexpr int GRID_COLS = 3;
@@ -33,6 +35,9 @@ class MosaicBrowserActivity final : public Activity {
     std::string label;          // filename stem at scan time, upgraded to the title once metadata loads
     std::string coverBmpPath;   // base thumb path, resolved when the book is indexed
     bool loaded = false;        // metadata + thumb attempted for this book
+    std::string author;         // populated eagerly when grouping is active (CGV-002)
+    std::string series;
+    float seriesIndex = -1.0f;
   };
 
   ButtonNavigator buttonNavigator;
@@ -40,6 +45,12 @@ class MosaicBrowserActivity final : public Activity {
   unsigned long lastInputMs = 0;  // for the idle gate before generating a cover
   std::vector<GridBook> books;
   std::string libraryPath = "/books";
+  uint8_t grouping = 0;  // session copy of SETTINGS.mosaicDefaultGrouping, set in onEnter (CGV-002)
+
+  // Missing/empty-folder info dialog (CGV-005/CGV-011 v2): a small dismissable
+  // overlay drawn over the (empty) grid, not a separate full-screen activity.
+  bool infoDialogVisible = false;
+  bool infoDialogMissing = false;  // true = folder doesn't exist; false = folder exists but has no books
 
   // Layout, computed once in onEnter from screen size + theme metrics.
   int coverW = 0;
@@ -57,10 +68,16 @@ class MosaicBrowserActivity final : public Activity {
   int visiblePagePending() const;  // index of the next un-indexed book on the visible page, or -1
   void indexBook(int i);
 
-  // Library-folder setting + missing-folder handling (CGV-005).
+  // Library-folder setting + missing/empty-folder handling (CGV-005/CGV-011).
   void checkLibraryFolder();
-  void onMissingFolderResult(const ActivityResult& result);
   void onPickFolderResult(const ActivityResult& result);
+  void finishLoadingBooks();  // called after any successful loadBooks(); routes into grouping if active
+
+  // Grouping (CGV-002): eager author/series pass + two-step group picker.
+  void loadGroupMetadata();
+  void launchGroupPicker();
+  void onGroupPickerResult(const ActivityResult& result);
+  void applyGroupFilter(const std::string& group);
 
  public:
   explicit MosaicBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

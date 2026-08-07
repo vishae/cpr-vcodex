@@ -199,6 +199,13 @@ class CrossPointSettings {
     DISPLAY_HEADER_MODE_COUNT = 4,
   };
   enum SYNC_DAY_WIFI_CHOICE { SYNC_DAY_WIFI_AUTO = 0, SYNC_DAY_WIFI_MANUAL = 1, SYNC_DAY_WIFI_CHOICE_COUNT };
+  // Cover-grid default grouping (CGV-002).
+  enum MOSAIC_GROUPING {
+    MOSAIC_GROUPING_NONE = 0,
+    MOSAIC_GROUPING_AUTHOR = 1,
+    MOSAIC_GROUPING_SERIES = 2,
+    MOSAIC_GROUPING_COUNT
+  };
   enum DAILY_GOAL_TARGET {
     DAILY_GOAL_15_MIN = 0,
     DAILY_GOAL_30_MIN = 1,
@@ -342,6 +349,8 @@ class CrossPointSettings {
   uint8_t sleepImageOrder = SLEEP_IMAGE_SHUFFLE;
   // Cover-grid ("mosaic") library root (CGV-005). Default /books.
   char libraryFolder[128] = "/books";
+  // Cover-grid default grouping (CGV-002).
+  uint8_t mosaicDefaultGrouping = MOSAIC_GROUPING_NONE;
   uint8_t timeZonePreset = 0;
   uint8_t dateFormat = DATE_DD_MM_YYYY;
   uint8_t dailyGoalTarget = DAILY_GOAL_30_MIN;

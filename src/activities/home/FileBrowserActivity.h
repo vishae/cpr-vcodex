@@ -40,6 +40,14 @@ class FileBrowserActivity final : public Activity {
   void loadFiles();
   size_t findEntry(const std::string& name) const;
 
+  // New-folder creation (CGV-011, PickFolder mode only). The synthetic "+ New
+  // folder" row sits at list index 0 (always visible without scrolling); real
+  // entries are offset by one — realIndex() maps a list index back into `files`.
+  void launchNewFolderEntry();
+  void onNewFolderNameResult(const ActivityResult& result);
+  bool isNewFolderRow(int listIndex) const { return mode == Mode::PickFolder && listIndex == 0; }
+  int realIndex(int listIndex) const { return mode == Mode::PickFolder ? listIndex - 1 : listIndex; }
+
  public:
   explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",
                                Mode mode = Mode::Books)

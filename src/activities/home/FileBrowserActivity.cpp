@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include "../util/ConfirmationActivity.h"
+#include "../util/KeyboardEntryActivity.h"
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "ReadingStatsStore.h"
@@ -283,9 +284,15 @@ void FileBrowserActivity::loop() {
       return;
     }
 
+    if (isNewFolderRow(static_cast<int>(selectorIndex))) {
+      // Synthetic "+ New folder" row, pinned first so it's never scrolled out of view (CGV-011).
+      launchNewFolderEntry();
+      return;
+    }
+
     if (files.empty()) return;
 
-    const std::string& entry = files[selectorIndex];
+    const std::string& entry = files[realIndex(static_cast<int>(selectorIndex))];
     bool isDirectory = (entry.back() == '/');
 
     if (mode == Mode::Books && mappedInput.getHeldTime() >= GO_HOME_MS) {
@@ -353,16 +360,23 @@ void FileBrowserActivity::loop() {
 
         const auto pos = oldPath.find_last_of('/');
         const std::string dirName = oldPath.substr(pos + 1) + "/";
-        selectorIndex = findEntry(dirName);
+        selectorIndex = findEntry(dirName) + (mode == Mode::PickFolder ? 1 : 0);
 
         requestUpdate();
+      } else if (mode == Mode::PickFolder) {
+        // BUG-001: PickFolder is always a modal picker (startActivityForResult) — cancel
+        // back to the caller instead of jumping to the device Home screen.
+        ActivityResult res;
+        res.isCancelled = true;
+        setResult(std::move(res));
+        finish();
       } else {
         onGoHome();
       }
     }
   }
 
-  int listSize = static_cast<int>(files.size());
+  const int listSize = static_cast<int>(files.size()) + (mode == Mode::PickFolder ? 1 : 0);
   buttonNavigator.onNextRelease([this, listSize] {
     selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
     requestUpdate();
@@ -425,16 +439,30 @@ void FileBrowserActivity::render(RenderLock&&) {
     renderer.drawCenteredText(SMALL_FONT_ID, metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing,
                               tr(STR_HOLD_TO_CHOOSE_FOLDER));
   }
-  if (files.empty()) {
+  if (files.empty() && mode != Mode::PickFolder) {
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_FILES_FOUND));
   } else {
+    const int listCount = static_cast<int>(files.size()) + (mode == Mode::PickFolder ? 1 : 0);
     GUI.drawList(
-        renderer, Rect{0, contentTop, pageWidth, contentHeight}, files.size(), selectorIndex,
-        [this](int index) { return getFileName(files[index]); }, nullptr,
-        [this](int index) { return UITheme::getFileIcon(files[index]); },
-        [this](int index) { return getFileExtension(files[index]); }, false,
+        renderer, Rect{0, contentTop, pageWidth, contentHeight}, listCount, selectorIndex,
         [this](int index) {
-          return index >= 0 && index < static_cast<int>(completedFileStates.size()) && completedFileStates[index] != 0;
+          if (isNewFolderRow(index)) return std::string(tr(STR_NEW_FOLDER));
+          return getFileName(files[realIndex(index)]);
+        },
+        nullptr,
+        [this](int index) {
+          if (isNewFolderRow(index)) return Folder;
+          return UITheme::getFileIcon(files[realIndex(index)]);
+        },
+        [this](int index) {
+          if (isNewFolderRow(index)) return std::string();
+          return getFileExtension(files[realIndex(index)]);
+        },
+        false,
+        [this](int index) {
+          if (isNewFolderRow(index)) return false;
+          const int i = realIndex(index);
+          return i >= 0 && i < static_cast<int>(completedFileStates.size()) && completedFileStates[i] != 0;
         });
   }
 
@@ -466,9 +494,16 @@ void FileBrowserActivity::render(RenderLock&&) {
   }
 
   // Help text
-  const auto labels = mappedInput.mapLabels(
-      basepath == "/" ? tr(STR_HOME) : tr(STR_BACK), mode == Mode::PickFolder ? tr(STR_OPEN) : (files.empty() ? "" : tr(STR_OPEN)),
-      files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
+  const char* backLabel;
+  if (basepath == "/") {
+    // BUG-001: PickFolder cancels at root instead of going Home — label accordingly.
+    backLabel = mode == Mode::PickFolder ? tr(STR_CANCEL) : tr(STR_HOME);
+  } else {
+    backLabel = tr(STR_BACK);
+  }
+  const auto labels =
+      mappedInput.mapLabels(backLabel, mode == Mode::PickFolder ? tr(STR_OPEN) : (files.empty() ? "" : tr(STR_OPEN)),
+                            files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
@@ -478,4 +513,38 @@ size_t FileBrowserActivity::findEntry(const std::string& name) const {
   for (size_t i = 0; i < files.size(); i++)
     if (files[i] == name) return i;
   return 0;
+}
+
+void FileBrowserActivity::launchNewFolderEntry() {
+  startActivityForResult(
+      std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_NEW_FOLDER_NAME_TITLE), "", 63,
+                                              InputType::FolderName),
+      [this](const ActivityResult& result) { onNewFolderNameResult(result); });
+}
+
+void FileBrowserActivity::onNewFolderNameResult(const ActivityResult& result) {
+  if (result.isCancelled) {
+    requestUpdate();
+    return;
+  }
+
+  const auto* keyboard = std::get_if<KeyboardResult>(&result.data);
+  if (!keyboard || keyboard->text.empty()) {
+    requestUpdate();
+    return;
+  }
+
+  std::string parent = basepath;
+  if (parent.empty() || parent.back() != '/') parent += "/";
+  const std::string newPath = parent + keyboard->text;
+
+  if (Storage.mkdir(newPath.c_str())) {
+    setResult(ActivityResult{FilePathResult{newPath}});
+    finish();
+    return;
+  }
+
+  LOG_ERR("FileBrowser", "Failed to create folder: %s", newPath.c_str());
+  loadFiles();
+  requestUpdate();
 }
