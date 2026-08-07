@@ -65,6 +65,8 @@ class ContentOpfParser final : public Print {
   std::string guideCoverPageHref;  // Guide reference with type="cover" or "cover-page" (points to XHTML wrapper)
   std::string textReferenceHref;
   std::vector<std::string> cssFiles;  // CSS stylesheet paths
+  std::string series;                 // calibre:series meta, empty if absent (CGV-002)
+  float seriesIndex = -1.0f;          // calibre:series_index meta, -1 if absent/unparsable
 
   explicit ContentOpfParser(const std::string& cachePath, const std::string& baseContentPath, const size_t xmlSize,
                             BookMetadataCache* cache)

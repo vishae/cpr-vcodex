@@ -14,6 +14,8 @@ class BookMetadataCache {
     std::string language;
     std::string coverItemHref;
     std::string textReferenceHref;
+    std::string series;        // calibre:series, empty if absent (CGV-002)
+    float seriesIndex = -1.0f;  // calibre:series_index, -1 if absent/unparsable
   };
 
   struct SpineEntry {

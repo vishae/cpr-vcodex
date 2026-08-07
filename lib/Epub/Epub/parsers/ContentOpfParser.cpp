@@ -6,6 +6,7 @@
 #include <XmlParserUtils.h>
 
 #include <cctype>
+#include <cstdlib>
 
 #include "../BookMetadataCache.h"
 
@@ -162,18 +163,36 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
 
   if (self->state == IN_METADATA && (strcmp(name, "meta") == 0 || strcmp(name, "opf:meta") == 0)) {
     bool isCover = false;
+    bool isSeries = false;
+    bool isSeriesIndex = false;
     std::string coverItemId;
+    std::string metaContent;
 
     for (int i = 0; atts[i]; i += 2) {
-      if (strcmp(atts[i], "name") == 0 && strcmp(atts[i + 1], "cover") == 0) {
-        isCover = true;
+      if (strcmp(atts[i], "name") == 0) {
+        if (strcmp(atts[i + 1], "cover") == 0) {
+          isCover = true;
+        } else if (strcmp(atts[i + 1], "calibre:series") == 0) {
+          isSeries = true;
+        } else if (strcmp(atts[i + 1], "calibre:series_index") == 0) {
+          isSeriesIndex = true;
+        }
       } else if (strcmp(atts[i], "content") == 0) {
-        coverItemId = atts[i + 1];
+        metaContent = atts[i + 1];
+        coverItemId = metaContent;
       }
     }
 
     if (isCover) {
       self->coverItemId = coverItemId;
+    }
+    // calibre:series/series_index (CGV-002). EPUB3 belongs-to-collection is a
+    // possible future addition (see CGV-002 History) — not handled here.
+    if (isSeries && self->series.empty()) {
+      self->series = metaContent;
+    }
+    if (isSeriesIndex && self->seriesIndex < 0.0f) {
+      self->seriesIndex = static_cast<float>(atof(metaContent.c_str()));
     }
     return;
   }
