@@ -556,6 +556,7 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
     strncpy(s.sleepDirectory, sleepDirectory.c_str(), sizeof(s.sleepDirectory) - 1);
     s.sleepDirectory[sizeof(s.sleepDirectory) - 1] = '\0';
   }
+  loadString("libraryFolder", s.libraryFolder, sizeof(s.libraryFolder));
   s.sleepImageOrder = clamp(doc["sleepImageOrder"] | static_cast<uint8_t>(S::SLEEP_IMAGE_SHUFFLE),
                             S::SLEEP_IMAGE_ORDER_COUNT, S::SLEEP_IMAGE_SHUFFLE);
   s.timeZonePreset =
@@ -917,6 +918,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["homeBookSource"] = s.homeBookSource;
   doc["autoSyncDay"] = s.autoSyncDay;
   doc["sleepDirectory"] = s.sleepDirectory;
+  doc["libraryFolder"] = s.libraryFolder;
   doc["sleepImageOrder"] = s.sleepImageOrder;
   doc["timeZonePreset"] = TimeZoneRegistry::clampPresetIndex(s.timeZonePreset);
   doc["appsHubShortcutOrder"] = s.appsHubShortcutOrder;

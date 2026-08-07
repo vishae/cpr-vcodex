@@ -276,6 +276,13 @@ void FileBrowserActivity::loop() {
   const int pageItems = UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false, pathReserved);
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (mode == Mode::PickFolder && mappedInput.getHeldTime() >= GO_HOME_MS) {
+      // Long press: choose the folder currently being browsed, not an entry within it.
+      setResult(ActivityResult{FilePathResult{basepath}});
+      finish();
+      return;
+    }
+
     if (files.empty()) return;
 
     const std::string& entry = files[selectorIndex];
@@ -409,9 +416,15 @@ void FileBrowserActivity::render(RenderLock&&) {
 
   const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   const int pathReserved = pathLineHeight + metrics.verticalSpacing;
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int hintLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
+  const int hintReserved = (mode == Mode::PickFolder) ? hintLineHeight + metrics.verticalSpacing : 0;
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing + hintReserved;
   const int contentHeight =
       pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
+  if (mode == Mode::PickFolder) {
+    renderer.drawCenteredText(SMALL_FONT_ID, metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing,
+                              tr(STR_HOLD_TO_CHOOSE_FOLDER));
+  }
   if (files.empty()) {
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_FILES_FOUND));
   } else {
@@ -453,9 +466,9 @@ void FileBrowserActivity::render(RenderLock&&) {
   }
 
   // Help text
-  const auto labels =
-      mappedInput.mapLabels(basepath == "/" ? tr(STR_HOME) : tr(STR_BACK), files.empty() ? "" : tr(STR_OPEN),
-                            files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
+  const auto labels = mappedInput.mapLabels(
+      basepath == "/" ? tr(STR_HOME) : tr(STR_BACK), mode == Mode::PickFolder ? tr(STR_OPEN) : (files.empty() ? "" : tr(STR_OPEN)),
+      files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

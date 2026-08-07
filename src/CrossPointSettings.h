@@ -340,6 +340,8 @@ class CrossPointSettings {
   uint8_t syncDayReminderStarts = SYNC_DAY_REMINDER_20;
   char sleepDirectory[128] = "";
   uint8_t sleepImageOrder = SLEEP_IMAGE_SHUFFLE;
+  // Cover-grid ("mosaic") library root (CGV-005). Default /books.
+  char libraryFolder[128] = "/books";
   uint8_t timeZonePreset = 0;
   uint8_t dateFormat = DATE_DD_MM_YYYY;
   uint8_t dailyGoalTarget = DAILY_GOAL_30_MIN;

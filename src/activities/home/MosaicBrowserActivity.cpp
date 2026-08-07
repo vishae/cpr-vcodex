@@ -11,7 +11,10 @@
 #include <algorithm>
 #include <cstring>
 
+#include "CrossPointSettings.h"
+#include "LibraryFolderMissingActivity.h"
 #include "MappedInputManager.h"
+#include "activities/home/FileBrowserActivity.h"
 #include "components/UITheme.h"
 #include "components/icons/cover.h"
 #include "fontIds.h"
@@ -157,8 +160,60 @@ void MosaicBrowserActivity::onEnter() {
   computeLayout();
   selectorIndex = 0;
   lastInputMs = millis();
-  loadBooks();
-  requestUpdate();
+  checkLibraryFolder();
+}
+
+void MosaicBrowserActivity::checkLibraryFolder() {
+  if (Storage.exists(libraryPath.c_str())) {
+    loadBooks();
+    requestUpdate();
+    return;
+  }
+
+  startActivityForResult(std::make_unique<LibraryFolderMissingActivity>(renderer, mappedInput, libraryPath),
+                         [this](const ActivityResult& result) { onMissingFolderResult(result); });
+}
+
+void MosaicBrowserActivity::onMissingFolderResult(const ActivityResult& result) {
+  if (result.isCancelled) {
+    onGoHome();
+    return;
+  }
+
+  const auto* menu = std::get_if<MenuResult>(&result.data);
+  if (!menu || menu->action == 0) {
+    // Create it at the configured path (mkdir also creates intermediate directories).
+    Storage.mkdir(libraryPath.c_str());
+    loadBooks();
+    requestUpdate();
+    return;
+  }
+
+  // Choose another folder.
+  startActivityForResult(
+      std::make_unique<FileBrowserActivity>(renderer, mappedInput, libraryPath, FileBrowserActivity::Mode::PickFolder),
+      [this](const ActivityResult& pickResult) { onPickFolderResult(pickResult); });
+}
+
+void MosaicBrowserActivity::onPickFolderResult(const ActivityResult& result) {
+  if (result.isCancelled) {
+    // Back out of the picker to the missing-folder popup rather than exiting the view entirely.
+    checkLibraryFolder();
+    return;
+  }
+
+  const auto* path = std::get_if<FilePathResult>(&result.data);
+  if (!path) {
+    checkLibraryFolder();
+    return;
+  }
+
+  libraryPath = path->path;
+  strncpy(SETTINGS.libraryFolder, libraryPath.c_str(), sizeof(SETTINGS.libraryFolder) - 1);
+  SETTINGS.libraryFolder[sizeof(SETTINGS.libraryFolder) - 1] = '\0';
+  SETTINGS.saveToFile();
+
+  checkLibraryFolder();
 }
 
 void MosaicBrowserActivity::onExit() {

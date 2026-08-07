@@ -48,6 +48,7 @@ enum class SettingAction {
   SleepApp,
   IfFound,
   DownloadFonts,
+  LibraryFolder,
 };
 
 struct SettingInfo {

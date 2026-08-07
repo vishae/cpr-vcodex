@@ -18,8 +18,9 @@
 // build per never-opened book, shared with the reader; it's cached afterwards.)
 //
 // Added alongside FileBrowserActivity (PID-26028, DEC-002), registered as a
-// reorderable Apps shortcut (DEC-004). Recursive scan is CGV-004. Grouping/sort
-// (CGV-002/003) and the library-folder setting (CGV-005) come later.
+// reorderable Apps shortcut (DEC-004). Recursive scan is CGV-004. The library
+// folder is configurable with missing-folder handling (CGV-005). Grouping/sort
+// (CGV-002/003) come later.
 class MosaicBrowserActivity final : public Activity {
  public:
   static constexpr int GRID_COLS = 3;
@@ -55,6 +56,11 @@ class MosaicBrowserActivity final : public Activity {
   int pageStartFor(size_t index) const;
   int visiblePagePending() const;  // index of the next un-indexed book on the visible page, or -1
   void indexBook(int i);
+
+  // Library-folder setting + missing-folder handling (CGV-005).
+  void checkLibraryFolder();
+  void onMissingFolderResult(const ActivityResult& result);
+  void onPickFolderResult(const ActivityResult& result);
 
  public:
   explicit MosaicBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

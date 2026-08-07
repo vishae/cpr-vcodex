@@ -240,7 +240,7 @@ void ActivityManager::goToRecentBooks() {
 }
 
 void ActivityManager::goToCoverGrid() {
-  replaceActivity(std::make_unique<MosaicBrowserActivity>(renderer, mappedInput));
+  replaceActivity(std::make_unique<MosaicBrowserActivity>(renderer, mappedInput, SETTINGS.libraryFolder));
 }
 
 void ActivityManager::goToBrowser() {

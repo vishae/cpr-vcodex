@@ -46,6 +46,7 @@
 #include "activities/apps/ScreenCleanActivity.h"
 #include "activities/apps/SleepAppActivity.h"
 #include "activities/apps/SyncDayActivity.h"
+#include "activities/home/FileBrowserActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
@@ -162,6 +163,7 @@ const std::vector<SettingInfo>& getDeviceSystemSettings() {
       SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates),
       SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate),
       SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language),
+      SettingInfo::Action(StrId::STR_LIBRARY_FOLDER, SettingAction::LibraryFolder),
   };
   return settings;
 }
@@ -362,6 +364,8 @@ std::string getSettingValueText(const SettingInfo& setting) {
         return CROSSPOINT_VERSION;
       case SettingAction::Language:
         return I18N.getLanguageName(I18N.getLanguage());
+      case SettingAction::LibraryFolder:
+        return SETTINGS.libraryFolder;
       case SettingAction::ReadingStats: {
         const auto* definition = findShortcutDefinition(ShortcutId::ReadingStats);
         return definition ? ShortcutUiMetadata::getSubtitle(*definition) : "";
@@ -702,6 +706,19 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::SyncDay:
         startActivityForResult(std::make_unique<SyncDayActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::LibraryFolder:
+        startActivityForResult(
+            std::make_unique<FileBrowserActivity>(renderer, mappedInput, SETTINGS.libraryFolder,
+                                                  FileBrowserActivity::Mode::PickFolder),
+            [this](const ActivityResult& result) {
+              const auto* path = std::get_if<FilePathResult>(&result.data);
+              if (path) {
+                strncpy(SETTINGS.libraryFolder, path->path.c_str(), sizeof(SETTINGS.libraryFolder) - 1);
+                SETTINGS.libraryFolder[sizeof(SETTINGS.libraryFolder) - 1] = '\0';
+                SETTINGS.saveToFile();
+              }
+            });
         break;
       case SettingAction::ClockSync:
         startActivityForResult(std::make_unique<ClockSyncActivity>(renderer, mappedInput), resultHandler);
