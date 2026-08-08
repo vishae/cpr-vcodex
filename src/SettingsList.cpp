@@ -144,6 +144,12 @@ const std::vector<SettingInfo>& getSettingsList() {
         SettingInfo::Enum(StrId::STR_MOSAIC_GROUPING, &CrossPointSettings::mosaicDefaultGrouping,
                           {StrId::STR_NONE_OPT, StrId::STR_BY_AUTHOR, StrId::STR_BY_SERIES}, "mosaicDefaultGrouping",
                           StrId::STR_APPS),
+        SettingInfo::Enum(StrId::STR_MOSAIC_AUTHOR_DISPLAY, &CrossPointSettings::mosaicAuthorGroupDisplay,
+                          {StrId::STR_DISPLAY_LIST, StrId::STR_DISPLAY_GRID}, "mosaicAuthorGroupDisplay",
+                          StrId::STR_APPS),
+        SettingInfo::Enum(StrId::STR_MOSAIC_SERIES_DISPLAY, &CrossPointSettings::mosaicSeriesGroupDisplay,
+                          {StrId::STR_DISPLAY_LIST, StrId::STR_DISPLAY_GRID}, "mosaicSeriesGroupDisplay",
+                          StrId::STR_APPS),
 
         // --- Shortcuts (web-only launcher placement) ---
         SettingInfo::Enum(StrId::STR_BROWSE_FILES, &CrossPointSettings::browseFilesShortcut,

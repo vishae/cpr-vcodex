@@ -206,6 +206,14 @@ class CrossPointSettings {
     MOSAIC_GROUPING_SERIES = 2,
     MOSAIC_GROUPING_COUNT
   };
+  // How the group picker presents each grouping type (CGV-002 v2). Independent
+  // per type: a series has a representative cover to show, an author doesn't —
+  // so authors default to the text list and series to the tile grid.
+  enum MOSAIC_GROUP_DISPLAY {
+    MOSAIC_GROUP_DISPLAY_LIST = 0,
+    MOSAIC_GROUP_DISPLAY_GRID = 1,
+    MOSAIC_GROUP_DISPLAY_COUNT
+  };
   enum DAILY_GOAL_TARGET {
     DAILY_GOAL_15_MIN = 0,
     DAILY_GOAL_30_MIN = 1,
@@ -351,6 +359,9 @@ class CrossPointSettings {
   char libraryFolder[128] = "/books";
   // Cover-grid default grouping (CGV-002).
   uint8_t mosaicDefaultGrouping = MOSAIC_GROUPING_NONE;
+  // Group-picker presentation, per grouping type (CGV-002 v2).
+  uint8_t mosaicAuthorGroupDisplay = MOSAIC_GROUP_DISPLAY_LIST;
+  uint8_t mosaicSeriesGroupDisplay = MOSAIC_GROUP_DISPLAY_GRID;
   uint8_t timeZonePreset = 0;
   uint8_t dateFormat = DATE_DD_MM_YYYY;
   uint8_t dailyGoalTarget = DAILY_GOAL_30_MIN;

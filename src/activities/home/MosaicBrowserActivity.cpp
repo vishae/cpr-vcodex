@@ -302,27 +302,82 @@ void MosaicBrowserActivity::loadGroupMetadata() {
       book.author = epub.getAuthor();
       book.series = epub.getSeries();
       book.seriesIndex = epub.getSeriesIndex();
+      book.coverBmpPath = epub.getThumbBmpPath();  // series tiles read this (CGV-002 v2)
     }
   }
 }
 
-void MosaicBrowserActivity::launchGroupPicker() {
-  std::vector<std::string> groups;
-  groups.emplace_back(tr(STR_ALL_BOOKS));
+// The bucket a book with no author/series falls into. Deliberately different
+// wording per grouping type (CGV-002): a book with no series isn't "unknown",
+// it's a standalone; a book with no author genuinely is unknown.
+std::string MosaicBrowserActivity::fallbackGroupName() const {
+  return grouping == CrossPointSettings::MOSAIC_GROUPING_SERIES ? tr(STR_STANDALONE_BOOKS) : tr(STR_UNKNOWN_GROUP);
+}
 
+// The group a book belongs to under the active grouping, with the fallback
+// bucket applied. Shared by the picker and the filter so the two can't disagree
+// about which bucket a book is in — if they did, selecting the bucket would
+// filter to nothing.
+std::string MosaicBrowserActivity::groupKeyFor(const GridBook& book) const {
+  const std::string key = (grouping == CrossPointSettings::MOSAIC_GROUPING_SERIES) ? book.series : book.author;
+  return key.empty() ? fallbackGroupName() : key;
+}
+
+void MosaicBrowserActivity::launchGroupPicker() {
+  const bool bySeries = grouping == CrossPointSettings::MOSAIC_GROUPING_SERIES;
+  const std::string fallback = fallbackGroupName();
+
+  // Distinct group names, alphabetical.
   std::vector<std::string> keys;
   keys.reserve(books.size());
-  for (const auto& book : books) {
-    std::string key = (grouping == CrossPointSettings::MOSAIC_GROUPING_SERIES) ? book.series : book.author;
-    if (key.empty()) key = tr(STR_UNKNOWN_GROUP);
-    keys.push_back(std::move(key));
-  }
+  for (const auto& book : books) keys.push_back(groupKeyFor(book));
   std::sort(keys.begin(), keys.end());
   keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
-  for (auto& key : keys) groups.push_back(std::move(key));
+
+  // The fallback bucket is pinned 2nd, right after "All books", instead of
+  // sorting alphabetically — so it's always in the same place regardless of
+  // what it's called or what else is in the library (CGV-002).
+  const auto fallbackIt = std::find(keys.begin(), keys.end(), fallback);
+  const bool hasFallback = fallbackIt != keys.end();
+  if (hasFallback) keys.erase(fallbackIt);
+
+  std::vector<MosaicGroupPickerActivity::Group> groups;
+  groups.reserve(keys.size() + 2);
+  groups.push_back({tr(STR_ALL_BOOKS), ""});
+  if (hasFallback) groups.push_back({fallback, ""});
+  for (auto& key : keys) groups.push_back({std::move(key), ""});
+
+  // Series tiles carry the cover of their lowest-seriesIndex book — the first in
+  // the series, which is the one that reads as its identity. Author tiles never
+  // carry a cover (an author isn't one visual identity, CGV-002), and neither do
+  // "All books" or the fallback bucket, so those keep the placeholder.
+  if (bySeries) {
+    std::unordered_map<std::string, const GridBook*> representative;
+    for (const auto& book : books) {
+      if (book.series.empty()) continue;
+      const auto existing = representative.find(book.series);
+      if (existing == representative.end() || book.seriesIndex < existing->second->seriesIndex) {
+        representative[book.series] = &book;
+      }
+    }
+    for (auto& group : groups) {
+      const auto found = representative.find(group.name);
+      if (found == representative.end()) continue;
+      const GridBook& book = *found->second;
+      // On an index-served open no EPUB is opened, so coverBmpPath is empty —
+      // but the thumb path is a pure hash of the book path, so it can be derived
+      // without touching the file. If no thumb has been generated yet the tile
+      // just falls back to the placeholder (Serena's call: don't generate here).
+      group.coverBmpPath =
+          book.coverBmpPath.empty() ? Epub(book.path, kCacheDir).getThumbBmpPath() : book.coverBmpPath;
+    }
+  }
+
+  const uint8_t display = bySeries ? SETTINGS.mosaicSeriesGroupDisplay : SETTINGS.mosaicAuthorGroupDisplay;
+  const bool useGrid = display == CrossPointSettings::MOSAIC_GROUP_DISPLAY_GRID;
 
   startActivityForResult(
-      std::make_unique<MosaicGroupPickerActivity>(renderer, mappedInput, std::move(groups)),
+      std::make_unique<MosaicGroupPickerActivity>(renderer, mappedInput, std::move(groups), useGrid),
       [this](const ActivityResult& result) { onGroupPickerResult(result); });
 }
 
@@ -350,15 +405,10 @@ void MosaicBrowserActivity::onGroupPickerResult(const ActivityResult& result) {
 void MosaicBrowserActivity::applyGroupFilter(const std::string& group) {
   if (group.empty()) return;
 
-  const std::string unknown = tr(STR_UNKNOWN_GROUP);
   const bool bySeries = grouping == CrossPointSettings::MOSAIC_GROUPING_SERIES;
-  books.erase(std::remove_if(books.begin(), books.end(),
-                             [&](const GridBook& book) {
-                               std::string key = bySeries ? book.series : book.author;
-                               if (key.empty()) key = unknown;
-                               return key != group;
-                             }),
-              books.end());
+  books.erase(
+      std::remove_if(books.begin(), books.end(), [&](const GridBook& book) { return groupKeyFor(book) != group; }),
+      books.end());
 
   if (bySeries) {
     std::sort(books.begin(), books.end(), [](const GridBook& a, const GridBook& b) {

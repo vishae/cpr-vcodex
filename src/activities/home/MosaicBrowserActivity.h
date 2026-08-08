@@ -98,6 +98,8 @@ class MosaicBrowserActivity final : public Activity {
   void continueToGroupPicker();
 
   // Grouping (CGV-002): eager author/series pass + two-step group picker.
+  std::string fallbackGroupName() const;                 // "Standalone books" by series, "Unknown" by author
+  std::string groupKeyFor(const GridBook& book) const;   // shared by the picker and the filter
   void loadGroupMetadata();
   void launchGroupPicker();
   void onGroupPickerResult(const ActivityResult& result);
