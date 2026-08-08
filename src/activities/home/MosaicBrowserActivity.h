@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "../Activity.h"
+#include "MosaicGrid.h"
 #include "MosaicLibraryIndex.h"
 #include "MosaicLibraryScan.h"
 #include "util/ButtonNavigator.h"
@@ -27,9 +28,9 @@
 // later.
 class MosaicBrowserActivity final : public Activity {
  public:
-  static constexpr int GRID_COLS = 3;
-  static constexpr int GRID_ROWS = 3;
-  static constexpr int BOOKS_PER_PAGE = GRID_COLS * GRID_ROWS;  // 9
+  static constexpr int GRID_COLS = MosaicGrid::COLS;
+  static constexpr int GRID_ROWS = MosaicGrid::ROWS;
+  static constexpr int BOOKS_PER_PAGE = MosaicGrid::PER_PAGE;  // 9
 
  private:
   struct GridBook {
@@ -55,15 +56,9 @@ class MosaicBrowserActivity final : public Activity {
   bool infoDialogVisible = false;
   bool infoDialogMissing = false;  // true = folder doesn't exist; false = folder exists but has no books
 
-  // Layout, computed once in onEnter from screen size + theme metrics.
-  int coverW = 0;
-  int coverH = 0;
-  int labelH = 0;
-  int gapX = 10;
-  int gapY = 10;
-  int labelGap = 2;
-  int gridX0 = 0;
-  int gridY0 = 0;
+  // Tile geometry, computed once in onEnter from screen size + theme metrics
+  // and handed to the shared painter on each render (DEC-011).
+  MosaicGrid::Layout layout;
 
   void computeLayout();
   void loadBooks();

@@ -1,7 +1,6 @@
 #include "MosaicBrowserActivity.h"
 
 #include <Arduino.h>
-#include <Bitmap.h>
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -22,12 +21,9 @@
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/settings/MosaicMetadataGenerateActivity.h"
 #include "components/UITheme.h"
-#include "components/icons/cover.h"
 #include "fontIds.h"
 
 namespace {
-constexpr int kCornerRadius = 6;
-constexpr int kSelectPad = 3;                    // border inset around the selected cover
 constexpr unsigned long kGenerateIdleMs = 250;   // wait this long after input before indexing a cover
 constexpr char kCacheDir[] = "/.crosspoint";
 
@@ -63,27 +59,7 @@ std::vector<std::string> wrapText(GfxRenderer& renderer, int fontId, const std::
 }
 }  // namespace
 
-void MosaicBrowserActivity::computeLayout() {
-  const auto& m = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
-
-  const int contentTop = m.topPadding + m.headerHeight + m.verticalSpacing;
-  const int contentBottom = pageHeight - m.buttonHintsHeight - m.verticalSpacing;
-  const int contentH = contentBottom - contentTop;
-
-  labelH = renderer.getLineHeight(SMALL_FONT_ID);
-
-  const auto coverSize = MosaicGridMetrics::computeCoverSize(renderer);
-  coverW = coverSize.width;
-  coverH = coverSize.height;
-
-  const int cellH = coverH + labelGap + labelH;
-  const int totalGridW = GRID_COLS * coverW + (GRID_COLS - 1) * gapX;
-  const int totalGridH = GRID_ROWS * cellH + (GRID_ROWS - 1) * gapY;
-  gridX0 = (pageWidth - totalGridW) / 2;
-  gridY0 = contentTop + std::max(0, (contentH - totalGridH) / 2);
-}
+void MosaicBrowserActivity::computeLayout() { layout = MosaicGrid::computeLayout(renderer); }
 
 void MosaicBrowserActivity::loadBooks() {
   books.clear();
@@ -125,9 +101,9 @@ void MosaicBrowserActivity::indexBook(int i) {
       const std::string& title = epub.getTitle();
       if (!title.empty()) book.label = title;
       book.coverBmpPath = epub.getThumbBmpPath();
-      const std::string thumb = UITheme::getCoverThumbPath(book.coverBmpPath, coverW, coverH);
+      const std::string thumb = UITheme::getCoverThumbPath(book.coverBmpPath, layout.coverW, layout.coverH);
       if (!Storage.exists(thumb.c_str())) {
-        epub.generateThumbBmp(coverW, coverH);
+        epub.generateThumbBmp(layout.coverW, layout.coverH);
       }
     }
   }
@@ -569,52 +545,10 @@ void MosaicBrowserActivity::render(RenderLock&&) {
       renderer.drawCenteredText(UI_10_FONT_ID, m.topPadding + m.headerHeight + 40, tr(STR_NO_FILES_FOUND));
     }
   } else {
-    const int cellH = coverH + labelGap + labelH;
-    const int pageEnd = std::min(pageStart + BOOKS_PER_PAGE, total);
-    for (int i = pageStart; i < pageEnd; ++i) {
-      const int slot = i - pageStart;
-      const int row = slot / GRID_COLS;
-      const int col = slot % GRID_COLS;
-      const int x = gridX0 + col * (coverW + gapX);
-      const int y = gridY0 + row * (cellH + gapY);
-
-      bool hasCover = false;
-      const GridBook& book = books[i];
-      if (!book.coverBmpPath.empty()) {
-        const std::string thumb = UITheme::getCoverThumbPath(book.coverBmpPath, coverW, coverH);
-        FsFile file;
-        if (Storage.openFileForRead("MOSAIC", thumb, file)) {
-          Bitmap bitmap(file);
-          if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-            const float bmpRatio = static_cast<float>(bitmap.getWidth()) / static_cast<float>(bitmap.getHeight());
-            const float tileRatio = static_cast<float>(coverW) / static_cast<float>(coverH);
-            const float cropX = (bmpRatio > tileRatio) ? (1.0f - tileRatio / bmpRatio) : 0.0f;
-            renderer.drawBitmap(bitmap, x, y, coverW, coverH, cropX, 0.0f);
-            renderer.maskRoundedRectOutsideCorners(x, y, coverW, coverH, kCornerRadius, Color::White);
-            hasCover = true;
-          }
-          file.close();
-        }
-      }
-      if (!hasCover) {
-        renderer.drawRoundedRect(x, y, coverW, coverH, 1, kCornerRadius, true);
-        renderer.drawIcon(CoverIcon, x + coverW / 2 - 16, y + coverH / 2 - 16, 32, 32);
-      }
-
-      // Title label under the cover (truncated to the cover width).
-      std::string label = book.label;
-      while (!label.empty() && renderer.getTextWidth(SMALL_FONT_ID, label.c_str()) > coverW) {
-        label.pop_back();
-      }
-      const int labelW = renderer.getTextWidth(SMALL_FONT_ID, label.c_str());
-      renderer.drawText(SMALL_FONT_ID, x + (coverW - labelW) / 2, y + coverH + labelGap, label.c_str());
-
-      // Selection highlight: a thicker rounded border around the current cover.
-      if (i == static_cast<int>(selectorIndex)) {
-        renderer.drawRoundedRect(x - kSelectPad, y - kSelectPad, coverW + 2 * kSelectPad, coverH + 2 * kSelectPad, 3,
-                                 kCornerRadius + kSelectPad, true);
-      }
-    }
+    MosaicGrid::drawPage(
+        renderer, layout, pageStart, total, static_cast<int>(selectorIndex),
+        [this](const int index) { return books[index].label; },
+        [this](const int index) { return books[index].coverBmpPath; });
   }
 
   const auto labels =
@@ -627,17 +561,7 @@ void MosaicBrowserActivity::render(RenderLock&&) {
   // grid isn't navigable until the visible page finishes. Show a centered popup
   // over the grid so it's clear what's happening.
   if (visiblePagePending() >= 0) {
-    const int pageHeight = renderer.getScreenHeight();
-    const int lineH = renderer.getLineHeight(UI_10_FONT_ID);
-    const int pad = 14;
-    const int boxW = std::min(pageWidth - 40, 340);
-    const int boxH = lineH * 2 + pad * 2 + 4;
-    const int boxX = (pageWidth - boxW) / 2;
-    const int boxY = (pageHeight - boxH) / 2;
-    renderer.fillRoundedRect(boxX, boxY, boxW, boxH, 8, Color::White);
-    renderer.drawRoundedRect(boxX, boxY, boxW, boxH, 2, 8, true);
-    renderer.drawCenteredText(UI_10_FONT_ID, boxY + pad, tr(STR_COVER_GRID_INDEXING));
-    renderer.drawCenteredText(UI_10_FONT_ID, boxY + pad + lineH + 4, tr(STR_COVER_GRID_INDEXING_WAIT));
+    MosaicGrid::drawIndexingOverlay(renderer);
   }
 
   // Missing/empty-folder info dialog (CGV-005/CGV-011): a small dismissable
