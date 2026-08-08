@@ -6,6 +6,8 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Logging.h>
+#include <esp_heap_caps.h>
 
 #include <algorithm>
 #include <cstring>
@@ -171,6 +173,8 @@ void MosaicBrowserActivity::finishLoadingBooks() {
 // filtered grid can re-show the picker without a rescan, then show the picker.
 void MosaicBrowserActivity::continueToGroupPicker() {
   allBooksForGrouping = books;
+  LOG_DBG("MOSAIC", "Group picker: %u books, free=%u largest=%u", static_cast<unsigned>(books.size()),
+          ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
   launchGroupPicker();
 }
 
@@ -218,11 +222,26 @@ void MosaicBrowserActivity::applyIndexEntries() {
     book.series = entry.series;
     book.seriesIndex = entry.seriesIndex;
   }
+
+  // Release the index now its contents live in `books`. Holding it for the rest
+  // of the session is a second full copy of the library's metadata, and opening
+  // a book needs every byte it can get — decompressing a cover out of an EPUB
+  // allocates tens of KB, and on 320 KB of RAM that copy is enough to make the
+  // allocation fail (crash on entering a group, 2026-08-09).
+  releaseIndex();
+}
+
+// Free loadedIndex's heap, capacity included — clear() alone keeps the buffer.
+void MosaicBrowserActivity::releaseIndex() {
+  loadedIndex.libraryPath.clear();
+  loadedIndex.libraryPath.shrink_to_fit();
+  std::vector<MosaicLibraryIndex::Entry>().swap(loadedIndex.entries);
 }
 
 // The full per-book metadata pass — the ~14 s at 40 books this feature exists to
 // avoid — followed by persisting the result so the next open doesn't pay it.
 void MosaicBrowserActivity::rebuildIndexFromScratch() {
+  releaseIndex();  // whatever was loaded is about to be replaced; don't hold it while parsing every book
   loadGroupMetadata();
   saveIndex();
 }
@@ -302,7 +321,10 @@ void MosaicBrowserActivity::loadGroupMetadata() {
       book.author = epub.getAuthor();
       book.series = epub.getSeries();
       book.seriesIndex = epub.getSeriesIndex();
-      book.coverBmpPath = epub.getThumbBmpPath();  // series tiles read this (CGV-002 v2)
+      // Deliberately not storing the thumb path here: it's a pure hash of the
+      // book path, so the few series tiles that need one derive it on demand.
+      // Storing it per book costs a string across two copies of the list, and
+      // RAM is the binding constraint on this device.
     }
   }
 }

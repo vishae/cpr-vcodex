@@ -86,6 +86,7 @@ class MosaicBrowserActivity final : public Activity {
   MosaicLibraryIndex::Index loadedIndex;  // held between the check and the apply/prompt that follows it
   IndexStatus checkIndex();               // loads the index into loadedIndex and classifies it
   void applyIndexEntries();               // fills books from loadedIndex; books it doesn't know are left as scanned
+  void releaseIndex();                    // frees loadedIndex's heap once its contents are in `books`
   void saveIndex() const;
   void promptIndexUpdate(IndexStatus status);
   void onIndexPromptResult(const ActivityResult& result, IndexStatus status);
