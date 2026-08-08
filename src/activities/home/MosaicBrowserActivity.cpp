@@ -27,6 +27,12 @@
 
 namespace {
 constexpr unsigned long kGenerateIdleMs = 250;   // wait this long after input before indexing a cover
+// Don't start a cover generation unless this much contiguous heap is free
+// (BUG-006). Measured 2026-08-09 on a healthy device: largest free block sits at
+// 98,292 bytes while browsing, and the decompression that crashed it wanted
+// 69,873 in one go — so this floor leaves the normal path untouched while
+// refusing to start one that can't finish.
+constexpr size_t kCoverGenerationHeapFloor = 80 * 1024;
 constexpr char kCacheDir[] = "/.crosspoint";
 
 std::string fileStem(const std::string& path) {
@@ -105,7 +111,21 @@ void MosaicBrowserActivity::indexBook(int i) {
       book.coverBmpPath = epub.getThumbBmpPath();
       const std::string thumb = UITheme::getCoverThumbPath(book.coverBmpPath, layout.coverW, layout.coverH);
       if (!Storage.exists(thumb.c_str())) {
-        epub.generateThumbBmp(layout.coverW, layout.coverH);
+        // Generating a thumb decompresses the cover out of the zip — tens of KB
+        // in one block (69,873 bytes in the BUG-006 report). With exceptions off
+        // a failed allocation aborts the firmware, and there's no catching it
+        // after the fact, so the check has to happen before. Below the floor the
+        // tile keeps its placeholder: a missing cover is cosmetic, a crash loses
+        // her place and reboots.
+        if (heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT) >= kCoverGenerationHeapFloor) {
+          epub.generateThumbBmp(layout.coverW, layout.coverH);
+        } else {
+          LOG_INF("MOSAIC", "Skipping cover generation for %s: largest free block %u below floor", book.path.c_str(),
+                  heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+          // Deliberately stays marked loaded: retrying would re-parse the OPF on
+          // every idle tick for as long as memory is tight, which spins instead
+          // of degrading. "Generate all covers" fills it in later.
+        }
       }
     }
   }
@@ -642,8 +662,14 @@ void MosaicBrowserActivity::render(RenderLock&&) {
         [this](const int index) { return books[index].coverBmpPath; });
   }
 
+  // "Home" only when Back actually leaves for the home screen. Inside a group it
+  // returns to the picker (BUG-004), and dismisses the info dialog when that's
+  // showing — both are "Back", not "Home" (BUG-005).
+  const bool backReturnsToPicker =
+      grouping != CrossPointSettings::MOSAIC_GROUPING_NONE && !allBooksForGrouping.empty();
+  const char* backLabel = (infoDialogVisible || backReturnsToPicker) ? tr(STR_BACK) : tr(STR_HOME);
   const auto labels =
-      mappedInput.mapLabels(infoDialogVisible ? tr(STR_BACK) : tr(STR_HOME), books.empty() ? tr(STR_CHOOSE_ANOTHER) : tr(STR_OPEN),
+      mappedInput.mapLabels(backLabel, books.empty() ? tr(STR_CHOOSE_ANOTHER) : tr(STR_OPEN),
                             books.empty() ? "" : tr(STR_DIR_UP), books.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
