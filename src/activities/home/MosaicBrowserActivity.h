@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "../Activity.h"
+#include "MosaicLibraryIndex.h"
 #include "MosaicLibraryScan.h"
 #include "util/ButtonNavigator.h"
 
@@ -54,11 +55,6 @@ class MosaicBrowserActivity final : public Activity {
   bool infoDialogVisible = false;
   bool infoDialogMissing = false;  // true = folder doesn't exist; false = folder exists but has no books
 
-  // TEMPORARY (CGV-010 measurement): "N=312 scan=180ms meta=4210ms", shown under
-  // the group picker header so the folder-walk vs per-book-metadata split can be
-  // read off the device without a serial cable. Remove once CGV-010 is decided.
-  std::string timingDebugLine;
-
   // Layout, computed once in onEnter from screen size + theme metrics.
   int coverW = 0;
   int coverH = 0;
@@ -82,9 +78,29 @@ class MosaicBrowserActivity final : public Activity {
 
   // Persisted library index (CGV-010): serves the grouping metadata from disk
   // when the library fingerprint still matches, skipping the per-book pass.
+  //
+  // Three outcomes, not two — each gets different UI:
+  //   Fresh  - render straight from the index, no metadata reads at all.
+  //   Stale  - an index for this folder exists but the library has changed
+  //            since; prompt (update now / continue with what's cached).
+  //   Absent - no index for this folder at all; prompt with "no cache yet"
+  //            wording. Also covers an index built for a different folder.
+  enum class IndexStatus { Fresh, Stale, Absent };
+
   MosaicLibraryScan::Fingerprint currentFingerprint;
-  bool applyIndexIfFresh();  // true if the index was fresh and books were populated from it
+  MosaicLibraryIndex::Index loadedIndex;  // held between the check and the apply/prompt that follows it
+  IndexStatus checkIndex();               // loads the index into loadedIndex and classifies it
+  void applyIndexEntries();               // fills books from loadedIndex; books it doesn't know are left as scanned
   void saveIndex() const;
+  void promptIndexUpdate(IndexStatus status);
+  void onIndexPromptResult(const ActivityResult& result, IndexStatus status);
+  void continueWithoutUpdate(IndexStatus status);  // the "declined the update" path into the grid
+  // Set once she declines an update prompt in this session, so the eager
+  // folder-change prompt isn't immediately followed by the grouping-open one
+  // asking the same question again.
+  bool indexPromptDeclined = false;
+  void rebuildIndexFromScratch();  // full per-book metadata pass + save
+  void continueToGroupPicker();
 
   // Grouping (CGV-002): eager author/series pass + two-step group picker.
   void loadGroupMetadata();

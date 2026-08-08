@@ -48,6 +48,7 @@
 #include "activities/apps/SleepAppActivity.h"
 #include "activities/apps/SyncDayActivity.h"
 #include "activities/home/FileBrowserActivity.h"
+#include "activities/home/MosaicIndexPromptActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
@@ -736,11 +737,24 @@ void SettingsActivity::toggleCurrentSetting() {
                                                   FileBrowserActivity::Mode::PickFolder),
             [this](const ActivityResult& result) {
               const auto* path = std::get_if<FilePathResult>(&result.data);
-              if (path) {
-                strncpy(SETTINGS.libraryFolder, path->path.c_str(), sizeof(SETTINGS.libraryFolder) - 1);
-                SETTINGS.libraryFolder[sizeof(SETTINGS.libraryFolder) - 1] = '\0';
-                SETTINGS.saveToFile();
-              }
+              if (!path) return;
+              strncpy(SETTINGS.libraryFolder, path->path.c_str(), sizeof(SETTINGS.libraryFolder) - 1);
+              SETTINGS.libraryFolder[sizeof(SETTINGS.libraryFolder) - 1] = '\0';
+              SETTINGS.saveToFile();
+
+              // The new folder has no Cover Grid index yet (CGV-010/CGV-011) —
+              // offer to build it and pre-generate covers now, rather than
+              // leaving the cost for the next Cover Grid open.
+              startActivityForResult(
+                  std::make_unique<MosaicIndexPromptActivity>(renderer, mappedInput,
+                                                              MosaicIndexPromptActivity::Mode::NoCache,
+                                                              SETTINGS.libraryFolder),
+                  [this](const ActivityResult& promptResult) {
+                    if (promptResult.isCancelled) return;
+                    startActivityForResult(
+                        std::make_unique<MosaicMetadataGenerateActivity>(renderer, mappedInput),
+                        [this](const ActivityResult&) { requestUpdate(); });
+                  });
             });
         break;
       case SettingAction::GenerateMosaicMetadata:

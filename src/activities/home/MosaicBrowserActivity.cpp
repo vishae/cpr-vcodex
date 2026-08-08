@@ -16,9 +16,11 @@
 #include "MappedInputManager.h"
 #include "MosaicGridMetrics.h"
 #include "MosaicGroupPickerActivity.h"
+#include "MosaicIndexPromptActivity.h"
 #include "MosaicLibraryIndex.h"
 #include "MosaicLibraryScan.h"
 #include "activities/home/FileBrowserActivity.h"
+#include "activities/settings/MosaicMetadataGenerateActivity.h"
 #include "components/UITheme.h"
 #include "components/icons/cover.h"
 #include "fontIds.h"
@@ -153,12 +155,7 @@ void MosaicBrowserActivity::checkLibraryFolder() {
     return;
   }
 
-  // TEMPORARY (CGV-010 measurement): time the name-only folder walk.
-  const unsigned long scanStartMs = millis();
   loadBooks();
-  const unsigned long scanMs = millis() - scanStartMs;
-  timingDebugLine = "N=" + std::to_string(books.size()) + " scan=" + std::to_string(scanMs) + "ms";
-
   finishLoadingBooks();
 }
 
@@ -177,51 +174,128 @@ void MosaicBrowserActivity::finishLoadingBooks() {
   }
   // Persisted index (CGV-010): on a fingerprint match this serves title/author/
   // series straight from disk, skipping the per-book metadata pass entirely.
-  const unsigned long metaStartMs = millis();
-  const bool servedFromIndex = applyIndexIfFresh();
-  if (!servedFromIndex) {
-    loadGroupMetadata();
-    saveIndex();
+  const IndexStatus status = checkIndex();
+  if (status == IndexStatus::Fresh) {
+    applyIndexEntries();
+    continueToGroupPicker();
+    return;
   }
-  // TEMPORARY (CGV-010 measurement): "idx" marks an open served from the index.
-  timingDebugLine +=
-      std::string(" meta=") + (servedFromIndex ? "idx " : "") + std::to_string(millis() - metaStartMs) + "ms";
 
-  allBooksForGrouping = books;  // cached so Back from the filtered grid can re-show the picker without a rescan
+  // Stale or absent — ask before spending minutes rebuilding, instead of
+  // silently making her wait for it. Unless she already said no once this
+  // session (the eager folder-change prompt), in which case don't re-ask.
+  if (indexPromptDeclined) {
+    continueWithoutUpdate(status);
+    return;
+  }
+  promptIndexUpdate(status);
+}
+
+// Common tail of every path into the grid: cache the full list so Back from a
+// filtered grid can re-show the picker without a rescan, then show the picker.
+void MosaicBrowserActivity::continueToGroupPicker() {
+  allBooksForGrouping = books;
   launchGroupPicker();
 }
 
-// Populate the scanned books from the persisted index (CGV-010), if that index
-// was built for this library folder and its fingerprint still matches. Returns
-// false — leaving books untouched — whenever the index can't serve this open, so
-// the caller falls back to the per-book metadata pass and rebuilds it.
-bool MosaicBrowserActivity::applyIndexIfFresh() {
-  MosaicLibraryIndex::Index index;
-  if (!MosaicLibraryIndex::load(index)) return false;
+// Load the persisted index (CGV-010) into loadedIndex and classify it against
+// the library just walked. Absent covers "no index file", "unreadable", and
+// "built for a different folder" — all of which mean nothing is cached for this
+// path. A fingerprint mismatch, or a scanned book the index doesn't know about,
+// is Stale: the index can still be read from, it's just incomplete.
+MosaicBrowserActivity::IndexStatus MosaicBrowserActivity::checkIndex() {
+  loadedIndex = MosaicLibraryIndex::Index{};
+  if (!MosaicLibraryIndex::load(loadedIndex)) return IndexStatus::Absent;
+  if (loadedIndex.libraryPath != libraryPath) return IndexStatus::Absent;
+  if (loadedIndex.fingerprint != currentFingerprint) return IndexStatus::Stale;
 
-  // A different library folder is "no index yet", not "stale" — the eager
-  // no-cache-yet prompt on the folder setting covers that case (CGV-011).
-  if (index.libraryPath != libraryPath) return false;
-  if (index.fingerprint != currentFingerprint) return false;
-
+  // A same-count, same-total-size swap passes the fingerprint but can still
+  // leave a scanned book unknown to the index — treat that as stale rather than
+  // showing a book with no author/series (Serena's call, 2026-08-09).
   std::unordered_map<std::string, const MosaicLibraryIndex::Entry*> byPath;
-  byPath.reserve(index.entries.size());
-  for (const auto& entry : index.entries) byPath.emplace(entry.path, &entry);
-
-  // The fingerprint matching should mean every scanned book is in the index;
-  // if any isn't, distrust the whole index rather than showing a partial library.
+  byPath.reserve(loadedIndex.entries.size());
+  for (const auto& entry : loadedIndex.entries) byPath.emplace(entry.path, &entry);
   for (const auto& book : books) {
-    if (byPath.find(book.path) == byPath.end()) return false;
+    if (byPath.find(book.path) == byPath.end()) return IndexStatus::Stale;
   }
+  return IndexStatus::Fresh;
+}
+
+// Fill the scanned books from loadedIndex. Books the index doesn't know about
+// (the stale case) keep their scanned filename label and empty author/series,
+// so they still appear — under "Unknown" — rather than vanishing.
+//
+// No existence check is needed here: `books` comes from the walk this open just
+// performed, so every path in it exists. A deleted book can't be listed from a
+// stale index because the index isn't what produces the list.
+void MosaicBrowserActivity::applyIndexEntries() {
+  std::unordered_map<std::string, const MosaicLibraryIndex::Entry*> byPath;
+  byPath.reserve(loadedIndex.entries.size());
+  for (const auto& entry : loadedIndex.entries) byPath.emplace(entry.path, &entry);
 
   for (auto& book : books) {
-    const MosaicLibraryIndex::Entry& entry = *byPath[book.path];
+    const auto found = byPath.find(book.path);
+    if (found == byPath.end()) continue;
+    const MosaicLibraryIndex::Entry& entry = *found->second;
     if (!entry.title.empty()) book.label = entry.title;
     book.author = entry.author;
     book.series = entry.series;
     book.seriesIndex = entry.seriesIndex;
   }
-  return true;
+}
+
+// The full per-book metadata pass — the ~14 s at 40 books this feature exists to
+// avoid — followed by persisting the result so the next open doesn't pay it.
+void MosaicBrowserActivity::rebuildIndexFromScratch() {
+  loadGroupMetadata();
+  saveIndex();
+}
+
+// Stale / no-cache-yet prompt (CGV-010). Confirm runs the bulk cover+metadata
+// generation, which writes a fresh index on its way out; cancel carries on with
+// whatever is cached (stale) or with the one-off metadata pass (absent).
+void MosaicBrowserActivity::promptIndexUpdate(IndexStatus status) {
+  const auto mode =
+      status == IndexStatus::Stale ? MosaicIndexPromptActivity::Mode::Stale : MosaicIndexPromptActivity::Mode::NoCache;
+  startActivityForResult(
+      std::make_unique<MosaicIndexPromptActivity>(renderer, mappedInput, mode, libraryPath),
+      [this, status](const ActivityResult& result) { onIndexPromptResult(result, status); });
+}
+
+void MosaicBrowserActivity::onIndexPromptResult(const ActivityResult& result, IndexStatus status) {
+  if (!result.isCancelled) {
+    // Update now — bulk-generate covers and metadata for every book (CGV-008),
+    // which also saves a fresh index. Re-check it on the way back so this open
+    // is served from that index instead of repeating the pass.
+    startActivityForResult(std::make_unique<MosaicMetadataGenerateActivity>(renderer, mappedInput),
+                           [this](const ActivityResult&) {
+                             if (checkIndex() == IndexStatus::Fresh) {
+                               applyIndexEntries();
+                             } else {
+                               rebuildIndexFromScratch();
+                             }
+                             continueToGroupPicker();
+                           });
+    return;
+  }
+
+  indexPromptDeclined = true;
+  continueWithoutUpdate(status);
+}
+
+void MosaicBrowserActivity::continueWithoutUpdate(IndexStatus status) {
+  if (status == IndexStatus::Stale) {
+    // Continue with what's cached: books the index knows keep their metadata,
+    // the rest group under "Unknown" until the next update. Deliberately not
+    // saved — a part-known library must not overwrite the index and then look
+    // fresh next open.
+    applyIndexEntries();
+  } else {
+    // Nothing cached to continue from, so this falls back to the pre-CGV-010
+    // behaviour: pay the metadata pass once, but keep the result this time.
+    rebuildIndexFromScratch();
+  }
+  continueToGroupPicker();
 }
 
 // Persist the metadata just computed by loadGroupMetadata(), stamped with the
@@ -272,7 +346,7 @@ void MosaicBrowserActivity::launchGroupPicker() {
   for (auto& key : keys) groups.push_back(std::move(key));
 
   startActivityForResult(
-      std::make_unique<MosaicGroupPickerActivity>(renderer, mappedInput, std::move(groups), timingDebugLine),
+      std::make_unique<MosaicGroupPickerActivity>(renderer, mappedInput, std::move(groups)),
       [this](const ActivityResult& result) { onGroupPickerResult(result); });
 }
 
@@ -347,8 +421,23 @@ void MosaicBrowserActivity::onPickFolderResult(const ActivityResult& result) {
   strncpy(SETTINGS.libraryFolder, libraryPath.c_str(), sizeof(SETTINGS.libraryFolder) - 1);
   SETTINGS.libraryFolder[sizeof(SETTINGS.libraryFolder) - 1] = '\0';
   SETTINGS.saveToFile();
+  indexPromptDeclined = false;  // new folder, so the earlier "no" no longer applies
 
-  checkLibraryFolder();
+  // The new folder has no index (CGV-010/CGV-011). Offer to build it now rather
+  // than waiting for the next grouping open to discover it — the covers are
+  // worth pre-generating even with grouping off.
+  startActivityForResult(
+      std::make_unique<MosaicIndexPromptActivity>(renderer, mappedInput, MosaicIndexPromptActivity::Mode::NoCache,
+                                                  libraryPath),
+      [this](const ActivityResult& promptResult) {
+        if (promptResult.isCancelled) {
+          indexPromptDeclined = true;
+          checkLibraryFolder();
+          return;
+        }
+        startActivityForResult(std::make_unique<MosaicMetadataGenerateActivity>(renderer, mappedInput),
+                               [this](const ActivityResult&) { checkLibraryFolder(); });
+      });
 }
 
 void MosaicBrowserActivity::onExit() {
@@ -367,7 +456,16 @@ void MosaicBrowserActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     lastInputMs = millis();
     if (!books.empty() && selectorIndex < books.size()) {
-      onSelectBook(books[selectorIndex].path);
+      // Selection-time guard (CGV-010): the card can be pulled or edited on a
+      // computer between the scan and this press, so confirm the file is still
+      // there rather than handing a dead path to the reader. Cheap — an
+      // existence check, no zip or metadata work.
+      const std::string selectedPath = books[selectorIndex].path;
+      if (!Storage.exists(selectedPath.c_str())) {
+        checkLibraryFolder();  // re-walk; the book has gone, so re-list what's actually there
+        return;
+      }
+      onSelectBook(selectedPath);
     } else if (books.empty()) {
       // Folder missing or has no books — offer the picker either way, instead
       // of dead-ending on an empty grid with only Home to press.

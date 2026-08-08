@@ -9,6 +9,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "activities/home/MosaicGridMetrics.h"
+#include "activities/home/MosaicLibraryIndex.h"
 #include "activities/home/MosaicLibraryScan.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -25,7 +26,11 @@ void MosaicMetadataGenerateActivity::onEnter() {
   coverH = coverSize.height;
 
   libraryPath = SETTINGS.libraryFolder;
-  bookPaths = MosaicLibraryScan::scanBookPaths(libraryPath);
+  bookPaths = MosaicLibraryScan::scanBookPaths(libraryPath, &fingerprint);
+  // Every scanned book gets an index entry, even a .xtc with no metadata to
+  // read — the browser distrusts an index that doesn't know a scanned book.
+  indexEntries.clear();
+  indexEntries.reserve(bookPaths.size());
   currentIndex = 0;
   generatedCount = 0;
   skippedCount = 0;
@@ -42,9 +47,19 @@ void MosaicMetadataGenerateActivity::generateNext() {
   }
 
   const std::string& path = bookPaths[currentIndex++];
+  MosaicLibraryIndex::Entry entry;
+  entry.path = path;
+
   if (FsHelpers::hasEpubExtension(path)) {
     Epub epub(path, kCacheDir);
     if (epub.loadMetadataOnly()) {
+      // The metadata is already parsed here — keep it for the index (CGV-010)
+      // instead of making the next Cover Grid open parse every content.opf again.
+      entry.title = epub.getTitle();
+      entry.author = epub.getAuthor();
+      entry.series = epub.getSeries();
+      entry.seriesIndex = epub.getSeriesIndex();
+
       const std::string coverBmpPath = epub.getThumbBmpPath();
       const std::string thumb = UITheme::getCoverThumbPath(coverBmpPath, coverW, coverH);
       if (!Storage.exists(thumb.c_str())) {
@@ -55,11 +70,25 @@ void MosaicMetadataGenerateActivity::generateNext() {
       }
     }
   }
+  indexEntries.push_back(std::move(entry));
 
   if (currentIndex >= bookPaths.size()) {
     state = State::DONE;
+    saveIndex();
   }
   requestUpdate();
+}
+
+// Persist what this run computed as the Cover Grid's library index (CGV-010),
+// so the grouping open that follows costs a folder walk and nothing more.
+// Only called on a completed run — a part-generated index stamped with the
+// full-library fingerprint would look fresh while missing books.
+void MosaicMetadataGenerateActivity::saveIndex() const {
+  MosaicLibraryIndex::Index index;
+  index.libraryPath = libraryPath;
+  index.fingerprint = fingerprint;
+  index.entries = indexEntries;
+  MosaicLibraryIndex::save(index);
 }
 
 void MosaicMetadataGenerateActivity::loop() {

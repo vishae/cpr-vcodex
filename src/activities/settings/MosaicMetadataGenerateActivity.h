@@ -4,6 +4,8 @@
 #include <vector>
 
 #include "activities/Activity.h"
+#include "activities/home/MosaicLibraryIndex.h"
+#include "activities/home/MosaicLibraryScan.h"
 
 /**
  * On-demand bulk metadata + cover-thumbnail generation for the Cover Grid
@@ -12,7 +14,12 @@
  * book in the library up front — so a bulk book upload can be pre-indexed at
  * a convenient time instead of eating the cost while actually browsing.
  *
- * Launched from Settings > Apps > Cover Grid > "Generate all covers".
+ * A completed run also persists the library index (CGV-010) from the metadata
+ * it just parsed, which is what makes it the "Update now" target of the
+ * stale / no-cache-yet prompt.
+ *
+ * Launched from Settings > Apps > Cover Grid > "Generate all covers", and from
+ * that prompt.
  */
 class MosaicMetadataGenerateActivity final : public Activity {
  public:
@@ -36,5 +43,10 @@ class MosaicMetadataGenerateActivity final : public Activity {
   int coverW = 0;
   int coverH = 0;
 
+  // Accumulated during the run and written out once it completes (CGV-010).
+  MosaicLibraryScan::Fingerprint fingerprint;
+  std::vector<MosaicLibraryIndex::Entry> indexEntries;
+
   void generateNext();
+  void saveIndex() const;
 };

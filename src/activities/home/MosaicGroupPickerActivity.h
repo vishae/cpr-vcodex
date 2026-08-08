@@ -12,11 +12,8 @@
 // KeyboardResult; Back cancels.
 class MosaicGroupPickerActivity final : public Activity {
  public:
-  MosaicGroupPickerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::vector<std::string> groups,
-                            std::string debugLine = "")
-      : Activity("MosaicGroupPicker", renderer, mappedInput),
-        groups(std::move(groups)),
-        debugLine(std::move(debugLine)) {}
+  MosaicGroupPickerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::vector<std::string> groups)
+      : Activity("MosaicGroupPicker", renderer, mappedInput), groups(std::move(groups)) {}
 
   void onEnter() override;
   void loop() override;
@@ -24,9 +21,6 @@ class MosaicGroupPickerActivity final : public Activity {
 
  private:
   std::vector<std::string> groups;  // groups[0] is always "All books"
-  // TEMPORARY (CGV-010 measurement): timing readout drawn under the header when
-  // non-empty. Remove along with MosaicBrowserActivity::timingDebugLine.
-  std::string debugLine;
   size_t selectorIndex = 0;
   ButtonNavigator buttonNavigator;
 };
