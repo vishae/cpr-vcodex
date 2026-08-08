@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "../Activity.h"
+#include "MosaicLibraryScan.h"
 #include "util/ButtonNavigator.h"
 
 // KOReader-style mosaic library browser: a 3x3 grid of book cover thumbnails
@@ -53,6 +54,11 @@ class MosaicBrowserActivity final : public Activity {
   bool infoDialogVisible = false;
   bool infoDialogMissing = false;  // true = folder doesn't exist; false = folder exists but has no books
 
+  // TEMPORARY (CGV-010 measurement): "N=312 scan=180ms meta=4210ms", shown under
+  // the group picker header so the folder-walk vs per-book-metadata split can be
+  // read off the device without a serial cable. Remove once CGV-010 is decided.
+  std::string timingDebugLine;
+
   // Layout, computed once in onEnter from screen size + theme metrics.
   int coverW = 0;
   int coverH = 0;
@@ -73,6 +79,12 @@ class MosaicBrowserActivity final : public Activity {
   void checkLibraryFolder();
   void onPickFolderResult(const ActivityResult& result);
   void finishLoadingBooks();  // called after any successful loadBooks(); routes into grouping if active
+
+  // Persisted library index (CGV-010): serves the grouping metadata from disk
+  // when the library fingerprint still matches, skipping the per-book pass.
+  MosaicLibraryScan::Fingerprint currentFingerprint;
+  bool applyIndexIfFresh();  // true if the index was fresh and books were populated from it
+  void saveIndex() const;
 
   // Grouping (CGV-002): eager author/series pass + two-step group picker.
   void loadGroupMetadata();

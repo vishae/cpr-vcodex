@@ -7,8 +7,9 @@
 
 namespace MosaicLibraryScan {
 
-std::vector<std::string> scanBookPaths(const std::string& libraryPath) {
+std::vector<std::string> scanBookPaths(const std::string& libraryPath, Fingerprint* outFingerprint) {
   std::vector<std::string> paths;
+  if (outFingerprint) *outFingerprint = Fingerprint{};
   std::vector<std::string> stack;
   stack.push_back(libraryPath);
   char nameBuf[512];
@@ -44,6 +45,11 @@ std::vector<std::string> scanBookPaths(const std::string& libraryPath) {
         std::string_view filename{nameBuf};
         if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename)) {
           paths.push_back(full);
+          if (outFingerprint) {
+            // Size comes from the directory entry already open here — no extra read.
+            outFingerprint->fileCount++;
+            outFingerprint->totalBytes += file.fileSize64();
+          }
         }
       }
       file.close();

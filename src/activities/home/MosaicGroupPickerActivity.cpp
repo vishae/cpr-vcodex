@@ -22,7 +22,16 @@ void MosaicGroupPickerActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight},
                  tr(STR_MOSAIC_GROUP_PICKER_TITLE));
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+
+  // TEMPORARY (CGV-010 measurement): folder-walk vs per-book-metadata timings,
+  // drawn above the list so they're readable without a serial cable.
+  if (!debugLine.empty()) {
+    const int lineHeight = renderer.getTextHeight(SMALL_FONT_ID) + 4;
+    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, contentTop, debugLine.c_str());
+    contentTop += lineHeight;
+  }
+
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
   GUI.drawList(renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(groups.size()),
               selectorIndex, [this](const int index) { return groups[index]; });

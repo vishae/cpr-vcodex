@@ -10,11 +10,13 @@
 
 #include <algorithm>
 #include <cstring>
+#include <unordered_map>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "MosaicGridMetrics.h"
 #include "MosaicGroupPickerActivity.h"
+#include "MosaicLibraryIndex.h"
 #include "MosaicLibraryScan.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "components/UITheme.h"
@@ -86,7 +88,7 @@ void MosaicBrowserActivity::loadBooks() {
 
   // Recursive walk of the library folder (CGV-004), skipping hidden/system
   // folders and the completed-books directory so those never appear in the grid.
-  for (auto& path : MosaicLibraryScan::scanBookPaths(libraryPath)) {
+  for (auto& path : MosaicLibraryScan::scanBookPaths(libraryPath, &currentFingerprint)) {
     books.push_back(GridBook{path, fileStem(path), "", false});
   }
 
@@ -151,7 +153,12 @@ void MosaicBrowserActivity::checkLibraryFolder() {
     return;
   }
 
+  // TEMPORARY (CGV-010 measurement): time the name-only folder walk.
+  const unsigned long scanStartMs = millis();
   loadBooks();
+  const unsigned long scanMs = millis() - scanStartMs;
+  timingDebugLine = "N=" + std::to_string(books.size()) + " scan=" + std::to_string(scanMs) + "ms";
+
   finishLoadingBooks();
 }
 
@@ -168,9 +175,67 @@ void MosaicBrowserActivity::finishLoadingBooks() {
     requestUpdate();
     return;
   }
-  loadGroupMetadata();
+  // Persisted index (CGV-010): on a fingerprint match this serves title/author/
+  // series straight from disk, skipping the per-book metadata pass entirely.
+  const unsigned long metaStartMs = millis();
+  const bool servedFromIndex = applyIndexIfFresh();
+  if (!servedFromIndex) {
+    loadGroupMetadata();
+    saveIndex();
+  }
+  // TEMPORARY (CGV-010 measurement): "idx" marks an open served from the index.
+  timingDebugLine +=
+      std::string(" meta=") + (servedFromIndex ? "idx " : "") + std::to_string(millis() - metaStartMs) + "ms";
+
   allBooksForGrouping = books;  // cached so Back from the filtered grid can re-show the picker without a rescan
   launchGroupPicker();
+}
+
+// Populate the scanned books from the persisted index (CGV-010), if that index
+// was built for this library folder and its fingerprint still matches. Returns
+// false — leaving books untouched — whenever the index can't serve this open, so
+// the caller falls back to the per-book metadata pass and rebuilds it.
+bool MosaicBrowserActivity::applyIndexIfFresh() {
+  MosaicLibraryIndex::Index index;
+  if (!MosaicLibraryIndex::load(index)) return false;
+
+  // A different library folder is "no index yet", not "stale" — the eager
+  // no-cache-yet prompt on the folder setting covers that case (CGV-011).
+  if (index.libraryPath != libraryPath) return false;
+  if (index.fingerprint != currentFingerprint) return false;
+
+  std::unordered_map<std::string, const MosaicLibraryIndex::Entry*> byPath;
+  byPath.reserve(index.entries.size());
+  for (const auto& entry : index.entries) byPath.emplace(entry.path, &entry);
+
+  // The fingerprint matching should mean every scanned book is in the index;
+  // if any isn't, distrust the whole index rather than showing a partial library.
+  for (const auto& book : books) {
+    if (byPath.find(book.path) == byPath.end()) return false;
+  }
+
+  for (auto& book : books) {
+    const MosaicLibraryIndex::Entry& entry = *byPath[book.path];
+    if (!entry.title.empty()) book.label = entry.title;
+    book.author = entry.author;
+    book.series = entry.series;
+    book.seriesIndex = entry.seriesIndex;
+  }
+  return true;
+}
+
+// Persist the metadata just computed by loadGroupMetadata(), stamped with the
+// fingerprint of the walk that produced it, so the next open can skip that pass.
+void MosaicBrowserActivity::saveIndex() const {
+  MosaicLibraryIndex::Index index;
+  index.libraryPath = libraryPath;
+  index.fingerprint = currentFingerprint;
+  index.entries.reserve(books.size());
+  for (const auto& book : books) {
+    index.entries.push_back(MosaicLibraryIndex::Entry{book.path, book.label, book.author, book.series,
+                                                      book.seriesIndex});
+  }
+  MosaicLibraryIndex::save(index);
 }
 
 // Eager metadata-only pass (title/author/series) over every scanned book, so the
@@ -206,8 +271,9 @@ void MosaicBrowserActivity::launchGroupPicker() {
   keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
   for (auto& key : keys) groups.push_back(std::move(key));
 
-  startActivityForResult(std::make_unique<MosaicGroupPickerActivity>(renderer, mappedInput, std::move(groups)),
-                         [this](const ActivityResult& result) { onGroupPickerResult(result); });
+  startActivityForResult(
+      std::make_unique<MosaicGroupPickerActivity>(renderer, mappedInput, std::move(groups), timingDebugLine),
+      [this](const ActivityResult& result) { onGroupPickerResult(result); });
 }
 
 void MosaicBrowserActivity::onGroupPickerResult(const ActivityResult& result) {
