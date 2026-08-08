@@ -105,8 +105,14 @@ void drawPage(GfxRenderer& renderer, const Layout& layout, const int pageStart, 
 // group, covers not yet generated. Drawn on screen rather than logged so it can
 // be read without a serial cable. Remove once BUG-006 is settled.
 void drawHeapDebugLine(GfxRenderer& renderer, const int y) {
+  // "min" is the point of this readout. free/largest are sampled during render,
+  // but a cover is decompressed in loop() and freed again before the next
+  // redraw, so the peak never appears in them. minimum_free_size is a low-water
+  // mark the allocator itself maintains across the whole boot — it catches the
+  // decompression whether or not anything happened to be sampling at the time.
   const std::string line = "free=" + std::to_string(ESP.getFreeHeap()) +
-                           " largest=" + std::to_string(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+                           " largest=" + std::to_string(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)) +
+                           " min=" + std::to_string(heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT));
   renderer.drawText(SMALL_FONT_ID, 6, y, line.c_str());
 }
 
