@@ -398,8 +398,21 @@ void MosaicBrowserActivity::launchGroupPicker() {
   const uint8_t display = bySeries ? SETTINGS.mosaicSeriesGroupDisplay : SETTINGS.mosaicAuthorGroupDisplay;
   const bool useGrid = display == CrossPointSettings::MOSAIC_GROUP_DISPLAY_GRID;
 
+  // Reopen on the group last chosen, so Back out of a group lands where it left
+  // rather than at the top (BUG-007). Matched by name, not by index — the list
+  // is rebuilt each time and a library change can reorder it.
+  size_t initialIndex = 0;
+  if (!lastGroupName.empty()) {
+    for (size_t i = 0; i < groups.size(); ++i) {
+      if (groups[i].name == lastGroupName) {
+        initialIndex = i;
+        break;
+      }
+    }
+  }
+
   startActivityForResult(
-      std::make_unique<MosaicGroupPickerActivity>(renderer, mappedInput, std::move(groups), useGrid),
+      std::make_unique<MosaicGroupPickerActivity>(renderer, mappedInput, std::move(groups), useGrid, initialIndex),
       [this](const ActivityResult& result) { onGroupPickerResult(result); });
 }
 
@@ -416,6 +429,7 @@ void MosaicBrowserActivity::onGroupPickerResult(const ActivityResult& result) {
   }
 
   selectorIndex = 0;
+  lastGroupName = keyboard->text;  // so Back re-opens the picker on this group (BUG-007)
   const std::string allBooksLabel = tr(STR_ALL_BOOKS);
   applyGroupFilter(keyboard->text == allBooksLabel ? "" : keyboard->text);
   requestUpdate();
@@ -611,6 +625,11 @@ void MosaicBrowserActivity::render(RenderLock&&) {
     title += "  " + std::to_string(currentPage) + "/" + std::to_string(totalPages);
   }
   GUI.drawHeader(renderer, Rect{0, m.topPadding, pageWidth, m.headerHeight}, title.c_str());
+
+  // TEMPORARY (BUG-006 measurement): the crash happens while a group's covers
+  // are generated, so the readout has to be visible here too. Remove with the
+  // picker's copy once the headroom is known.
+  MosaicGrid::drawHeapDebugLine(renderer, m.topPadding + m.headerHeight);
 
   if (total == 0) {
     if (!infoDialogVisible) {

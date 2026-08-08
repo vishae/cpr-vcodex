@@ -53,4 +53,9 @@ void drawIndexingOverlay(GfxRenderer& renderer);
 // First item index of the page containing `index`.
 int pageStartFor(int index);
 
+// TEMPORARY (BUG-006 measurement): draws "free=… largest=…" so the heap
+// headroom can be read off the device without a serial cable — the same trick
+// used for the CGV-010 timings. Remove once BUG-006 is settled.
+void drawHeapDebugLine(GfxRenderer& renderer, int y);
+
 }  // namespace MosaicGrid

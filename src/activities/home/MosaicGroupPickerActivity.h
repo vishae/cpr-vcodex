@@ -25,9 +25,15 @@ class MosaicGroupPickerActivity final : public Activity {
     std::string coverBmpPath;  // empty = placeholder tile (always, for authors)
   };
 
+  // initialIndex restores the selection from the last time the picker was shown,
+  // so Back out of a group lands on that group rather than jumping to the top
+  // (BUG-007). Out-of-range values are clamped in onEnter.
   MosaicGroupPickerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::vector<Group> groups,
-                            bool useGrid)
-      : Activity("MosaicGroupPicker", renderer, mappedInput), groups(std::move(groups)), useGrid(useGrid) {}
+                            bool useGrid, size_t initialIndex = 0)
+      : Activity("MosaicGroupPicker", renderer, mappedInput),
+        groups(std::move(groups)),
+        useGrid(useGrid),
+        selectorIndex(initialIndex) {}
 
   void onEnter() override;
   void loop() override;

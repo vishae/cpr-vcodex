@@ -11,7 +11,9 @@
 
 void MosaicGroupPickerActivity::onEnter() {
   Activity::onEnter();
-  selectorIndex = 0;
+  // Keep the restored selection (BUG-007), but never trust it blindly — the
+  // group list is rebuilt on each open and may have shrunk since.
+  if (selectorIndex >= groups.size()) selectorIndex = 0;
   if (useGrid) layout = MosaicGrid::computeLayout(renderer);
   requestUpdate();
 }
@@ -31,6 +33,9 @@ void MosaicGroupPickerActivity::render(RenderLock&&) {
     title += "  " + std::to_string(currentPage) + "/" + std::to_string(totalPages);
   }
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, title.c_str());
+
+  // TEMPORARY (BUG-006 measurement) — remove once the memory headroom is known.
+  MosaicGrid::drawHeapDebugLine(renderer, metrics.topPadding + metrics.headerHeight);
 
   if (useGrid) {
     renderGrid();

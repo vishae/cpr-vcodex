@@ -1,9 +1,11 @@
 #include "MosaicGrid.h"
 
+#include <Arduino.h>
 #include <Bitmap.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <esp_heap_caps.h>
 
 #include <algorithm>
 
@@ -96,6 +98,16 @@ void drawPage(GfxRenderer& renderer, const Layout& layout, const int pageStart, 
                                layout.coverH + 2 * kSelectPad, 3, kCornerRadius + kSelectPad, true);
     }
   }
+}
+
+// TEMPORARY (BUG-006 measurement): the crash was a failed allocation, so what
+// matters is how much headroom is actually left at the worst moment — biggest
+// group, covers not yet generated. Drawn on screen rather than logged so it can
+// be read without a serial cable. Remove once BUG-006 is settled.
+void drawHeapDebugLine(GfxRenderer& renderer, const int y) {
+  const std::string line = "free=" + std::to_string(ESP.getFreeHeap()) +
+                           " largest=" + std::to_string(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+  renderer.drawText(SMALL_FONT_ID, 6, y, line.c_str());
 }
 
 void drawIndexingOverlay(GfxRenderer& renderer) {
