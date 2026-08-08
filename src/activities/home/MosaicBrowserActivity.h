@@ -44,6 +44,7 @@ class MosaicBrowserActivity final : public Activity {
   size_t selectorIndex = 0;
   unsigned long lastInputMs = 0;  // for the idle gate before generating a cover
   std::vector<GridBook> books;
+  std::vector<GridBook> allBooksForGrouping;  // full metadata-loaded list, cached so Back can re-show the group picker without a rescan (CGV-002)
   std::string libraryPath = "/books";
   uint8_t grouping = 0;  // session copy of SETTINGS.mosaicDefaultGrouping, set in onEnter (CGV-002)
 
@@ -78,6 +79,7 @@ class MosaicBrowserActivity final : public Activity {
   void launchGroupPicker();
   void onGroupPickerResult(const ActivityResult& result);
   void applyGroupFilter(const std::string& group);
+  void reshowGroupPicker();  // Back from a filtered grid returns here instead of Home
 
  public:
   explicit MosaicBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

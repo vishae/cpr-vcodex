@@ -24,7 +24,8 @@ void MosaicMetadataGenerateActivity::onEnter() {
   coverW = coverSize.width;
   coverH = coverSize.height;
 
-  bookPaths = MosaicLibraryScan::scanBookPaths(SETTINGS.libraryFolder);
+  libraryPath = SETTINGS.libraryFolder;
+  bookPaths = MosaicLibraryScan::scanBookPaths(libraryPath);
   currentIndex = 0;
   generatedCount = 0;
   skippedCount = 0;
@@ -100,7 +101,9 @@ void MosaicMetadataGenerateActivity::render(RenderLock&&) {
         renderer,
         Rect{metrics.contentSidePadding, y, pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
         pct, 100);
-    y += metrics.progressBarHeight + metrics.verticalSpacing;
+    // drawProgressBar already draws its own "N%" label 15px below the bar (BaseTheme::drawProgressBar) —
+    // clear that line before drawing the count, or the two overlap.
+    y += metrics.progressBarHeight + 15 + lineHeight + metrics.verticalSpacing;
 
     const std::string countText = std::to_string(currentIndex) + " / " + std::to_string(total);
     renderer.drawCenteredText(UI_10_FONT_ID, y, countText.c_str());
@@ -108,7 +111,10 @@ void MosaicMetadataGenerateActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_METADATA_GENERATION_COMPLETE), true, EpdFontFamily::BOLD);
+    const int maxWidth = pageWidth - 40;
+    const std::string heading = std::string(tr(STR_METADATA_GENERATION_COMPLETE)) + " " + libraryPath;
+    const std::string safeHeading = renderer.truncatedText(UI_10_FONT_ID, heading.c_str(), maxWidth, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, top, safeHeading.c_str(), true, EpdFontFamily::BOLD);
 
     std::string resultText = std::to_string(generatedCount) + " " + std::string(tr(STR_BOOKS_GENERATED));
     if (skippedCount > 0) {

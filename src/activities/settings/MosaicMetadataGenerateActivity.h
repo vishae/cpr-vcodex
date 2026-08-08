@@ -29,6 +29,7 @@ class MosaicMetadataGenerateActivity final : public Activity {
  private:
   State state = State::DONE;
   std::vector<std::string> bookPaths;
+  std::string libraryPath;  // captured at onEnter for display on the DONE screen
   size_t currentIndex = 0;
   int generatedCount = 0;
   int skippedCount = 0;

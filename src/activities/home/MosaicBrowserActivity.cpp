@@ -169,6 +169,7 @@ void MosaicBrowserActivity::finishLoadingBooks() {
     return;
   }
   loadGroupMetadata();
+  allBooksForGrouping = books;  // cached so Back from the filtered grid can re-show the picker without a rescan
   launchGroupPicker();
 }
 
@@ -255,6 +256,14 @@ void MosaicBrowserActivity::applyGroupFilter(const std::string& group) {
   }
 }
 
+// Back from a filtered grid comes here instead of Home — restore the full
+// (already metadata-loaded) list and re-show the picker, no rescan needed.
+void MosaicBrowserActivity::reshowGroupPicker() {
+  books = allBooksForGrouping;
+  selectorIndex = 0;
+  launchGroupPicker();
+}
+
 void MosaicBrowserActivity::onPickFolderResult(const ActivityResult& result) {
   if (result.isCancelled) {
     // Back out of the picker to the missing-folder popup rather than exiting the view entirely.
@@ -279,6 +288,7 @@ void MosaicBrowserActivity::onPickFolderResult(const ActivityResult& result) {
 void MosaicBrowserActivity::onExit() {
   Activity::onExit();
   books.clear();
+  allBooksForGrouping.clear();
 }
 
 bool MosaicBrowserActivity::skipLoopDelay() {
@@ -308,6 +318,12 @@ void MosaicBrowserActivity::loop() {
       // First Back just dismisses the info dialog; a second press then goes Home.
       infoDialogVisible = false;
       requestUpdate();
+      return;
+    }
+    if (grouping != CrossPointSettings::MOSAIC_GROUPING_NONE && !allBooksForGrouping.empty()) {
+      // Grouping active — Back returns to the group picker (a level between
+      // Home and the grid), not straight out to Home.
+      reshowGroupPicker();
       return;
     }
     onGoHome();
