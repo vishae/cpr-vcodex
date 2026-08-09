@@ -113,22 +113,16 @@ void MosaicBrowserActivity::indexBook(int i) {
   GridBook& book = books[i];
   book.loaded = true;
 
-  if (!FsHelpers::hasEpubExtension(book.path)) {
-    MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::NotEpub);  // TEMPORARY (BUG-006)
-  } else {
+  if (FsHelpers::hasEpubExtension(book.path)) {
     Epub epub(book.path, kCacheDir);
     // Metadata-only load: parses just the OPF (title + cover) and skips the
     // expensive spine-size build. Reuses the full cache if already indexed.
-    if (!epub.loadMetadataOnly()) {
-      MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::MetadataFailed);  // TEMPORARY (BUG-006)
-    } else {
+    if (epub.loadMetadataOnly()) {
       const std::string& title = epub.getTitle();
       if (!title.empty()) book.label = title;
       book.coverBmpPath = epub.getThumbBmpPath();
       const std::string thumb = UITheme::getCoverThumbPath(book.coverBmpPath, layout.coverW, layout.coverH);
-      if (Storage.exists(thumb.c_str())) {
-        MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::ThumbExists);  // TEMPORARY (BUG-006)
-      } else {
+      if (!Storage.exists(thumb.c_str())) {
         // Generating a thumb decompresses the cover out of the zip — tens of KB
         // in one block (69,873 bytes in the BUG-006 report). With exceptions off
         // a failed allocation aborts the firmware, and there's no catching it
@@ -136,17 +130,9 @@ void MosaicBrowserActivity::indexBook(int i) {
         // tile keeps its placeholder: a missing cover is cosmetic, a crash loses
         // her place and reboots.
         const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
-        MosaicGrid::noteCoverCheck(largest);  // TEMPORARY (BUG-006): what the gate actually saw
         if (largest >= MosaicGrid::COVER_GENERATION_HEAP_FLOOR) {
           epub.generateThumbBmp(layout.coverW, layout.coverH);
-          MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::Generated);  // TEMPORARY (BUG-006)
-          // TEMPORARY (BUG-006): how close a real generation came to the floor.
-          // minimum_free_size is the allocator's boot-long low-water mark, so
-          // after a generation it reflects that generation's peak — the number
-          // that says whether this floor has margin or is running on luck.
-          MosaicGrid::noteGenerationLowWater(heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT));
         } else {
-          MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::SkippedLowMemory);  // TEMPORARY (BUG-006)
           LOG_INF("MOSAIC", "Skipping cover generation for %s: largest free block %u below floor", book.path.c_str(),
                   largest);
           // Skipped for now, not for good: the book stays marked loaded so the
@@ -677,10 +663,6 @@ void MosaicBrowserActivity::render(RenderLock&&) {
   }
   GUI.drawHeader(renderer, Rect{0, m.topPadding, pageWidth, m.headerHeight}, title.c_str());
 
-  // TEMPORARY (BUG-006 measurement): the crash happens while a group's covers
-  // are generated, so the readout has to be visible here too. Remove with the
-  // picker's copy once the headroom is known.
-  MosaicGrid::drawHeapDebugLine(renderer, m.topPadding + m.headerHeight);
 
   if (total == 0) {
     if (!infoDialogVisible) {

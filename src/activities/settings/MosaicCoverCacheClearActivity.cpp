@@ -89,8 +89,11 @@ void MosaicCoverCacheClearActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
-      mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+  // Released, not pressed: SettingsActivity reads a Back *release* as "go to the
+  // top of this category", so exiting on the press left the release to land
+  // there and move the selection off the item just used.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
+      mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     finish();
   }
 }

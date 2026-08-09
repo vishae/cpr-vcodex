@@ -64,23 +64,5 @@ void drawIndexingOverlay(GfxRenderer& renderer);
 // First item index of the page containing `index`.
 int pageStartFor(int index);
 
-// TEMPORARY (BUG-006 measurement): draws "free=… largest=… min=…" so the heap
-// headroom can be read off the device without a serial cable — the same trick
-// used for the CGV-010 timings. Remove once BUG-006 is settled.
-void drawHeapDebugLine(GfxRenderer& renderer, int y);
-
-// TEMPORARY (BUG-006 measurement): record what the cover-generation gate saw,
-// so the floor can be tuned against the value it's actually compared with
-// rather than the at-rest one.
-void noteCoverCheck(size_t largestFreeBlock);
-
-// TEMPORARY (BUG-006 diagnosis): count which way each indexBook() attempt went,
-// so the screen shows where the path exits instead of leaving it to inference.
-enum class IndexOutcome { NotEpub, MetadataFailed, ThumbExists, Generated, SkippedLowMemory };
-void noteIndexOutcome(IndexOutcome outcome);
-
-// TEMPORARY (BUG-006): the allocator's low-water mark sampled after a real
-// generation — how much headroom an actual cover decompression left.
-void noteGenerationLowWater(size_t minimumFreeSize);
 
 }  // namespace MosaicGrid

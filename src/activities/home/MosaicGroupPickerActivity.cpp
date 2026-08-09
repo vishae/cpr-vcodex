@@ -34,9 +34,6 @@ void MosaicGroupPickerActivity::render(RenderLock&&) {
   }
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, title.c_str());
 
-  // TEMPORARY (BUG-006 measurement) — remove once the memory headroom is known.
-  MosaicGrid::drawHeapDebugLine(renderer, metrics.topPadding + metrics.headerHeight);
-
   if (useGrid) {
     renderGrid();
   } else {
