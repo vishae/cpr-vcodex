@@ -28,15 +28,17 @@
 namespace {
 constexpr unsigned long kGenerateIdleMs = 250;   // wait this long after input before indexing a cover
 // Don't start a cover generation unless this much contiguous heap is free
-// (BUG-006). Tuning history, both measured on device 2026-08-09: at rest the
-// largest free block is 98,292 bytes, and a generation pulls the heap's
-// low-water mark down to 39,084 — so it needs on the order of 78 KB in total,
-// but by the time this check runs the OPF parse has already taken its share and
-// the largest block is well below the at-rest figure. An 80 KB floor rejected
-// almost every attempt (19 of 20 books stayed placeholders). This floor sits
-// above the ~70 KB single block the decompression asks for, with headroom, but
-// low enough not to veto a generation that would have succeeded.
-constexpr size_t kCoverGenerationHeapFloor = 72 * 1024;
+// (BUG-006). Tuned against what the gate itself sees, measured on device
+// 2026-08-09 inside a group: 57-59 KB, not the 98 KB the heap shows at rest —
+// by then the book lists and the EPUB object hold the difference. Earlier
+// floors of 80 KB and 72 KB were both set from the at-rest figure and vetoed
+// nearly everything (4 generated, 41 skipped at 72 KB), which is a worse outcome
+// than the crash they guard against: no covers at all, permanently.
+//
+// 48 KB keeps a real refusal point — the crash happened with the heap far
+// deeper into exhaustion than this — while clearing the steady-state value by
+// enough that normal browsing generates covers.
+constexpr size_t kCoverGenerationHeapFloor = 48 * 1024;
 constexpr char kCacheDir[] = "/.crosspoint";
 
 std::string fileStem(const std::string& path) {
@@ -150,6 +152,11 @@ void MosaicBrowserActivity::indexBook(int i) {
         if (largest >= kCoverGenerationHeapFloor) {
           epub.generateThumbBmp(layout.coverW, layout.coverH);
           MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::Generated);  // TEMPORARY (BUG-006)
+          // TEMPORARY (BUG-006): how close a real generation came to the floor.
+          // minimum_free_size is the allocator's boot-long low-water mark, so
+          // after a generation it reflects that generation's peak — the number
+          // that says whether this floor has margin or is running on luck.
+          MosaicGrid::noteGenerationLowWater(heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT));
         } else {
           MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::SkippedLowMemory);  // TEMPORARY (BUG-006)
           LOG_INF("MOSAIC", "Skipping cover generation for %s: largest free block %u below floor", book.path.c_str(),

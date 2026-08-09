@@ -68,4 +68,8 @@ void noteCoverCheck(size_t largestFreeBlock);
 enum class IndexOutcome { NotEpub, MetadataFailed, ThumbExists, Generated, SkippedLowMemory };
 void noteIndexOutcome(IndexOutcome outcome);
 
+// TEMPORARY (BUG-006): the allocator's low-water mark sampled after a real
+// generation — how much headroom an actual cover decompression left.
+void noteGenerationLowWater(size_t minimumFreeSize);
+
 }  // namespace MosaicGrid

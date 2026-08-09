@@ -119,9 +119,14 @@ void noteCoverCheck(const size_t largestFreeBlock) {
 
 namespace {
 int outcomeCounts[5] = {0, 0, 0, 0, 0};
+size_t generationLowWater = SIZE_MAX;
 }  // namespace
 
 void noteIndexOutcome(const IndexOutcome outcome) { outcomeCounts[static_cast<int>(outcome)]++; }
+
+void noteGenerationLowWater(const size_t minimumFreeSize) {
+  if (minimumFreeSize < generationLowWater) generationLowWater = minimumFreeSize;
+}
 
 void drawHeapDebugLine(GfxRenderer& renderer, const int y) {
   // "min" is the point of this readout. free/largest are sampled during render,
@@ -147,7 +152,8 @@ void drawHeapDebugLine(GfxRenderer& renderer, const int y) {
                                   " metafail=" + std::to_string(outcomeCounts[1]) +
                                   " hasthumb=" + std::to_string(outcomeCounts[2]) +
                                   " gen=" + std::to_string(outcomeCounts[3]) +
-                                  " lowmem=" + std::to_string(outcomeCounts[4]);
+                                  " lowmem=" + std::to_string(outcomeCounts[4]) + " genmin=" +
+                                  (generationLowWater == SIZE_MAX ? std::string("-") : std::to_string(generationLowWater));
   renderer.drawText(SMALL_FONT_ID, 6, y + (renderer.getTextHeight(SMALL_FONT_ID) + 2) * 2, outcomeLine.c_str());
 }
 
