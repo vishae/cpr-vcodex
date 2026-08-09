@@ -12,10 +12,12 @@
 
 **Cover Grid** -- a mosaic library browser: a 3x3 grid of book covers alongside the existing file list, opened as its own Apps shortcut. Recursively scans the library folder, shows titles under covers, and generates covers incrementally so the grid stays navigable. Books can be grouped by author or series from EPUB metadata, with a two-step picker that shows either a text list or a cover grid per grouping type. A persisted library index makes repeat opens fast -- a grouping open dropped from ~14 s to ~0.4 s on a 40-book library -- with prompts when the library has changed or hasn't been indexed yet. Also: a configurable library folder, bulk "Generate all covers", and "Delete cover cache".
 
-Plus two earlier changes around KOReader sync:
+### Earlier work, now upstream
+
+Two KOReader sync changes started here and have since been contributed to and released by upstream CPR-vCodex, so they are **no longer differences** -- they're described here only because this fork is where they began. Multiple sync accounts shipped upstream in [`1.3.0.37-cpr-vcodex`](https://github.com/franssjz/cpr-vcodex/releases/tag/1.3.0.37-cpr-vcodex) via [PR #150](https://github.com/franssjz/cpr-vcodex/pull/150), and that version has been merged back into this fork.
 
 - **Fixed KOReader sync sending the wrong date.** The outgoing progress update never included a timestamp field, even though the rest of the sync protocol already supported one. Syncs now send the actual current time. (In practice this turned out to be a no-op against the reference sync server, which stamps its own received-date regardless -- see the commit message for the full story. Kept anyway since it completes a field the protocol's own download path already expects.)
-- **Added support for multiple KoReader sync accounts.** Previously the firmware could only remember one KoReader server/username/password at a time. This fork adds a profile list (`Settings > KOReader Sync > KOReader Profiles`) for saving several accounts and switching which one is active, the same way OPDS servers already worked. Existing single-account setups keep working unchanged.
+- **Support for multiple KoReader sync accounts.** Previously the firmware could only remember one KoReader server/username/password at a time. A profile list (`Settings > KOReader Sync > KOReader Profiles`) saves several accounts and switches which one is active, the same way OPDS servers already worked. Existing single-account setups keep working unchanged.
 
   Why this matters in practice:
   - If the default `https://sync.koreader.rocks` goes down -- which it can -- a saved backup server profile can be switched to without losing or overwriting the original credentials.
@@ -23,7 +25,7 @@ Plus two earlier changes around KOReader sync:
 
   How it's stored: the full profile list plus which one is active lives in a new `/.crosspoint/koreader_profiles.json`. The original `/.crosspoint/koreader.json` (the file stock crosspoint-reader/CrossPoint Reader also reads) keeps its old single-account shape and is always rewritten to mirror whichever profile is active, so switching back to stock firmware on the same SD card still works.
 
-  **Known limitation:** that mirroring only runs one way. If you edit KoReader credentials from a different firmware that only knows the single-account `koreader.json` shape (e.g. stock CrossPoint Reader), this fork's profile store won't notice -- you'd need to re-enter that change here. No profiles are ever lost, they just won't auto-update from an edit made elsewhere.
+  **Known limitation:** that mirroring only runs one way. If you edit KoReader credentials from a different firmware that only knows the single-account `koreader.json` shape (e.g. stock CrossPoint Reader), the profile store won't notice -- you'd need to re-enter that change here. No profiles are ever lost, they just won't auto-update from an edit made elsewhere.
 
 Full detail in the [commit history](https://github.com/vishae/cpr-vcodex/commits/master).
 
