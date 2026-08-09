@@ -10,7 +10,9 @@
 
 ## What I changed in this fork
 
-Two changes on top of franssjz's `1.3.0.35-cpr-vcodex`, both around KOReader sync:
+**Cover Grid** -- a mosaic library browser: a 3x3 grid of book covers alongside the existing file list, opened as its own Apps shortcut. Recursively scans the library folder, shows titles under covers, and generates covers incrementally so the grid stays navigable. Books can be grouped by author or series from EPUB metadata, with a two-step picker that shows either a text list or a cover grid per grouping type. A persisted library index makes repeat opens fast -- a grouping open dropped from ~14 s to ~0.4 s on a 40-book library -- with prompts when the library has changed or hasn't been indexed yet. Also: a configurable library folder, bulk "Generate all covers", and "Delete cover cache".
+
+Plus two earlier changes around KOReader sync:
 
 - **Fixed KOReader sync sending the wrong date.** The outgoing progress update never included a timestamp field, even though the rest of the sync protocol already supported one. Syncs now send the actual current time. (In practice this turned out to be a no-op against the reference sync server, which stamps its own received-date regardless -- see the commit message for the full story. Kept anyway since it completes a field the protocol's own download path already expects.)
 - **Added support for multiple KoReader sync accounts.** Previously the firmware could only remember one KoReader server/username/password at a time. This fork adds a profile list (`Settings > KOReader Sync > KOReader Profiles`) for saving several accounts and switching which one is active, the same way OPDS servers already worked. Existing single-account setups keep working unchanged.
