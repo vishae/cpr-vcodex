@@ -128,33 +128,43 @@ void noteGenerationLowWater(const size_t minimumFreeSize) {
   if (minimumFreeSize < generationLowWater) generationLowWater = minimumFreeSize;
 }
 
-void drawHeapDebugLine(GfxRenderer& renderer, const int y) {
-  // "min" is the point of this readout. free/largest are sampled during render,
-  // but a cover is decompressed in loop() and freed again before the next
-  // redraw, so the peak never appears in them. minimum_free_size is a low-water
-  // mark the allocator itself maintains across the whole boot — it catches the
-  // decompression whether or not anything happened to be sampling at the time.
-  const std::string line = "free=" + std::to_string(ESP.getFreeHeap()) +
-                           " largest=" + std::to_string(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)) +
-                           " min=" + std::to_string(heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT));
-  renderer.drawText(SMALL_FONT_ID, 6, y, line.c_str());
+void drawHeapDebugLine(GfxRenderer& renderer, int) {
+  // Drawn at the bottom of the page, above the button hints, on a cleared strip:
+  // over the grid the tiles rendered straight through the numbers. Wrapped to
+  // the screen width so nothing runs off the right edge (the y parameter is
+  // ignored — kept only so the call sites don't churn while this is temporary).
+  //
+  // On the numbers themselves: free/largest are sampled here during render, but
+  // a cover is decompressed in loop() and freed before the next redraw, so the
+  // peak never appears in them. min/genmin come from the allocator's own
+  // boot-long low-water mark, which catches it regardless.
+  const std::string stats =
+      "free=" + std::to_string(ESP.getFreeHeap()) +
+      " largest=" + std::to_string(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)) +
+      " min=" + std::to_string(heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT)) +
+      " | chk=" + (lastCoverCheck == 0 ? std::string("-") : std::to_string(lastCoverCheck)) +
+      " chkmin=" + (lowestCoverCheck == SIZE_MAX ? std::string("-") : std::to_string(lowestCoverCheck)) +
+      " genmin=" + (generationLowWater == SIZE_MAX ? std::string("-") : std::to_string(generationLowWater)) +
+      " | gen=" + std::to_string(outcomeCounts[3]) + " lowmem=" + std::to_string(outcomeCounts[4]) +
+      " hasthumb=" + std::to_string(outcomeCounts[2]) + " metafail=" + std::to_string(outcomeCounts[1]) +
+      " notepub=" + std::to_string(outcomeCounts[0]);
 
-  // Second line: what the cover-generation gate saw, last and lowest. This is
-  // the number the floor is compared against, so it's the one to tune from.
-  const std::string gateLine =
-      "chk=" + (lastCoverCheck == 0 ? std::string("-") : std::to_string(lastCoverCheck)) +
-      " chkmin=" + (lowestCoverCheck == SIZE_MAX ? std::string("-") : std::to_string(lowestCoverCheck));
-  renderer.drawText(SMALL_FONT_ID, 6, y + renderer.getTextHeight(SMALL_FONT_ID) + 2, gateLine.c_str());
+  const auto& m = UITheme::getInstance().getMetrics();
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
+  constexpr int sidePad = 4;
+  const int lineH = renderer.getTextHeight(SMALL_FONT_ID) + 2;
 
-  // Third line: how each indexBook() attempt ended. With chk showing "-" the
-  // gate is never reached, so this says which earlier branch is taking them.
-  const std::string outcomeLine = "notepub=" + std::to_string(outcomeCounts[0]) +
-                                  " metafail=" + std::to_string(outcomeCounts[1]) +
-                                  " hasthumb=" + std::to_string(outcomeCounts[2]) +
-                                  " gen=" + std::to_string(outcomeCounts[3]) +
-                                  " lowmem=" + std::to_string(outcomeCounts[4]) + " genmin=" +
-                                  (generationLowWater == SIZE_MAX ? std::string("-") : std::to_string(generationLowWater));
-  renderer.drawText(SMALL_FONT_ID, 6, y + (renderer.getTextHeight(SMALL_FONT_ID) + 2) * 2, outcomeLine.c_str());
+  const auto lines = renderer.wrappedText(SMALL_FONT_ID, stats.c_str(), pageWidth - sidePad * 2, 4);
+  const int blockH = static_cast<int>(lines.size()) * lineH + 4;
+  const int top = pageHeight - m.buttonHintsHeight - blockH;
+
+  renderer.fillRect(0, top, pageWidth, blockH, false);  // clear the strip so tiles don't show through
+  int lineY = top + 2;
+  for (const auto& line : lines) {
+    renderer.drawText(SMALL_FONT_ID, sidePad, lineY, line.c_str());
+    lineY += lineH;
+  }
 }
 
 void drawIndexingOverlay(GfxRenderer& renderer) {
