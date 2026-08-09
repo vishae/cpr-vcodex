@@ -255,10 +255,14 @@ void waitForPowerRelease() {
 void enterDeepSleep() {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
-  APP_STATE.saveToFile();
 
   deepSleepInProgress = true;
   activityManager.goToSleep();
+
+  // Persist only after the sleep screen has been rendered. Serializing state
+  // while a reader is still alive fragments the heap immediately before the
+  // large contiguous allocation required by PNGdec.
+  APP_STATE.saveToFile();
 
   if (WiFi.getMode() != WIFI_MODE_NULL) {
     WiFi.disconnect(true);

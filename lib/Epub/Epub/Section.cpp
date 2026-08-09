@@ -22,7 +22,8 @@ namespace {
 //      first render).
 // v40: progressive/partial cache, with vCodex ruby blocks, paragraph/list
 // mapping and XHTML byte offsets retained.
-constexpr uint8_t SECTION_FILE_VERSION = 40;
+// v41: <br> after text no longer reapplies the parent block's vertical spacing.
+constexpr uint8_t SECTION_FILE_VERSION = 41;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects

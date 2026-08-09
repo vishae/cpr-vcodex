@@ -5,6 +5,7 @@
 
 #include <climits>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <string>
@@ -148,7 +149,7 @@ class ChapterHtmlSlimParser {
 
   // Anchor-to-page mapping: tracks which page each HTML id attribute lands on
   int completedPageCount = 0;
-  std::vector<std::pair<std::string, uint16_t>> anchorData;
+  std::deque<std::pair<std::string, uint16_t>> anchorData;
   std::string pendingAnchorId;          // deferred until after previous text block is flushed
   std::vector<std::string> tocAnchors;  // the list of anchors that are TOC chapter boundaries
   std::vector<std::string> referencedAnchors;
@@ -178,6 +179,7 @@ class ChapterHtmlSlimParser {
   void startNewTextBlock(const BlockStyle& blockStyle);
   void flushPendingAnchor();
   void flushPartWordBuffer();
+  void flushLongTextBlockIfNeeded();
   void makePages();
   void emitPage(uint32_t xhtmlByteOffset);
   void emitHorizontalRule(const BlockStyle& blockStyle);
@@ -236,7 +238,7 @@ class ChapterHtmlSlimParser {
   size_t parseBytesConsumed() { return parseFile_ ? parseFile_.position() : 0; }
   size_t parseTotalBytes() { return parseFile_ ? parseFile_.size() : 0; }
   void addLineToPage(std::shared_ptr<TextBlock> line);
-  const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
+  const std::deque<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
   bool wasLowMemoryFallbackTriggered() const { return lowMemoryImageFallback; }
   bool wasLowMemoryAbortTriggered() const { return lowMemoryAbort; }
 };

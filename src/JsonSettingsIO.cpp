@@ -65,15 +65,15 @@ class HalFileStream : public Stream {
   int peekedByte = -1;
 };
 
-bool copyVerifiedJsonTempToTarget(const char* moduleName, const std::string& tempPath,
-                                  const std::string& targetPath, const size_t expectedSize) {
+bool copyVerifiedJsonTempToTarget(const char* moduleName, const char* tempPath, const char* targetPath,
+                                  const size_t expectedSize) {
   HalFile source;
-  if (!Storage.openFileForRead(moduleName, tempPath.c_str(), source)) {
+  if (!Storage.openFileForRead(moduleName, tempPath, source)) {
     return false;
   }
 
   HalFile target;
-  if (!Storage.openFileForWrite(moduleName, targetPath.c_str(), target)) {
+  if (!Storage.openFileForWrite(moduleName, targetPath, target)) {
     source.close();
     return false;
   }
@@ -104,19 +104,19 @@ bool copyVerifiedJsonTempToTarget(const char* moduleName, const std::string& tem
   source.close();
 
   if (!complete || copied != expectedSize) {
-    Storage.remove(targetPath.c_str());
+    Storage.remove(targetPath);
     return false;
   }
 
   HalFile verification;
-  if (!Storage.openFileForRead(moduleName, targetPath.c_str(), verification)) {
-    Storage.remove(targetPath.c_str());
+  if (!Storage.openFileForRead(moduleName, targetPath, verification)) {
+    Storage.remove(targetPath);
     return false;
   }
   const bool sizeMatches = verification.fileSize64() == expectedSize;
   verification.close();
   if (!sizeMatches) {
-    Storage.remove(targetPath.c_str());
+    Storage.remove(targetPath);
     return false;
   }
 
@@ -124,28 +124,34 @@ bool copyVerifiedJsonTempToTarget(const char* moduleName, const std::string& tem
 }
 
 bool saveJsonDocumentToFile(const char* moduleName, const char* path, const JsonDocument& doc) {
-  const std::string targetPath = path ? path : "";
-  const std::string tempPath = targetPath + ".tmp";
-
-  if (targetPath.empty()) {
+  if (!path || !*path) {
     LOG_ERR(moduleName, "Missing JSON path for write");
     CPR_VCODEX_LOG_EVENT(moduleName, "Missing JSON path for write");
     return false;
   }
 
+  const char* targetPath = path;
+  char tempPath[256];
+  const int tempPathLength = snprintf(tempPath, sizeof(tempPath), "%s.tmp", targetPath);
+  if (tempPathLength < 0 || static_cast<size_t>(tempPathLength) >= sizeof(tempPath)) {
+    LOG_ERR(moduleName, "JSON path is too long for atomic write: %s", targetPath);
+    CPR_VCODEX_LOG_EVENT(moduleName, std::string("JSON path is too long for atomic write: ") + targetPath);
+    return false;
+  }
+
   if (doc.overflowed()) {
-    LOG_ERR(moduleName, "JSON document overflowed before write: %s", targetPath.c_str());
+    LOG_ERR(moduleName, "JSON document overflowed before write: %s", targetPath);
     CPR_VCODEX_LOG_EVENT(moduleName, std::string("Refused to write overflowed JSON document: ") + targetPath);
     return false;
   }
 
-  if (Storage.exists(tempPath.c_str())) {
-    Storage.remove(tempPath.c_str());
+  if (Storage.exists(tempPath)) {
+    Storage.remove(tempPath);
   }
 
   HalFile file;
-  if (!Storage.openFileForWrite(moduleName, tempPath.c_str(), file)) {
-    LOG_ERR(moduleName, "Could not open JSON file for write: %s", tempPath.c_str());
+  if (!Storage.openFileForWrite(moduleName, tempPath, file)) {
+    LOG_ERR(moduleName, "Could not open JSON file for write: %s", tempPath);
     CPR_VCODEX_LOG_EVENT(moduleName, std::string("Could not open JSON temp file for write: ") + tempPath);
     return false;
   }
@@ -155,37 +161,35 @@ bool saveJsonDocumentToFile(const char* moduleName, const char* path, const Json
   file.flush();
   file.close();
   if (written == 0 || written != expected) {
-    Storage.remove(tempPath.c_str());
-    LOG_ERR(moduleName, "Incomplete JSON write for %s: %u/%u bytes", targetPath.c_str(),
-            static_cast<unsigned>(written), static_cast<unsigned>(expected));
+    Storage.remove(tempPath);
+    LOG_ERR(moduleName, "Incomplete JSON write for %s: %u/%u bytes", targetPath, static_cast<unsigned>(written),
+            static_cast<unsigned>(expected));
     CPR_VCODEX_LOG_EVENT(moduleName, std::string("Incomplete JSON write for ") + targetPath + ": " +
                                          std::to_string(written) + "/" + std::to_string(expected) + " bytes");
     return false;
   }
 
-  if (Storage.exists(targetPath.c_str()) && !Storage.remove(targetPath.c_str())) {
-    Storage.remove(tempPath.c_str());
-    LOG_ERR(moduleName, "Could not remove JSON file before replace: %s", targetPath.c_str());
+  if (Storage.exists(targetPath) && !Storage.remove(targetPath)) {
+    Storage.remove(tempPath);
+    LOG_ERR(moduleName, "Could not remove JSON file before replace: %s", targetPath);
     CPR_VCODEX_LOG_EVENT(moduleName, std::string("Could not remove JSON file before replace: ") + targetPath);
     return false;
   }
 
-  if (!Storage.rename(tempPath.c_str(), targetPath.c_str())) {
-    LOG_ERR(moduleName, "Could not rename JSON temp file to final path: %s; trying checked copy", targetPath.c_str());
-    CPR_VCODEX_LOG_EVENT(moduleName,
-                         std::string("JSON temp rename failed; trying checked copy for ") + targetPath);
+  if (!Storage.rename(tempPath, targetPath)) {
+    LOG_ERR(moduleName, "Could not rename JSON temp file to final path: %s; trying checked copy", targetPath);
+    CPR_VCODEX_LOG_EVENT(moduleName, std::string("JSON temp rename failed; trying checked copy for ") + targetPath);
 
     if (!copyVerifiedJsonTempToTarget(moduleName, tempPath, targetPath, expected)) {
-      LOG_ERR(moduleName, "Could not promote JSON temp file to final path: %s", targetPath.c_str());
+      LOG_ERR(moduleName, "Could not promote JSON temp file to final path: %s", targetPath);
       CPR_VCODEX_LOG_EVENT(moduleName,
                            std::string("Could not promote JSON temp file; kept it for recovery: ") + tempPath);
       return false;
     }
 
-    Storage.remove(tempPath.c_str());
-    LOG_DBG(moduleName, "Recovered JSON replacement via checked copy: %s", targetPath.c_str());
-    CPR_VCODEX_LOG_EVENT(moduleName,
-                         std::string("Recovered JSON replacement via checked copy: ") + targetPath);
+    Storage.remove(tempPath);
+    LOG_DBG(moduleName, "Recovered JSON replacement via checked copy: %s", targetPath);
+    CPR_VCODEX_LOG_EVENT(moduleName, std::string("Recovered JSON replacement via checked copy: ") + targetPath);
   }
 
   return true;
@@ -1317,8 +1321,7 @@ bool JsonSettingsIO::loadKOReader(KOReaderCredentialStore& store, const char* js
                               ? static_cast<DocumentMatchMethod>(method)
                               : DocumentMatchMethod::FILENAME;
     profile.sendMetadata = doc["sendMetadata"] | false;
-    const uint8_t behavior =
-        doc["syncBehavior"] | static_cast<uint8_t>(KOReaderSyncBehavior::ASK_EVERY_TIME);
+    const uint8_t behavior = doc["syncBehavior"] | static_cast<uint8_t>(KOReaderSyncBehavior::ASK_EVERY_TIME);
     profile.syncBehavior = behavior <= static_cast<uint8_t>(KOReaderSyncBehavior::SMART)
                                ? static_cast<KOReaderSyncBehavior>(behavior)
                                : KOReaderSyncBehavior::ASK_EVERY_TIME;
@@ -1369,8 +1372,7 @@ bool JsonSettingsIO::loadKOReaderLegacyProfile(KOReaderProfile& profile, const c
                             ? static_cast<DocumentMatchMethod>(method)
                             : DocumentMatchMethod::FILENAME;
   profile.sendMetadata = doc["sendMetadata"] | false;
-  const uint8_t behavior =
-      doc["syncBehavior"] | static_cast<uint8_t>(KOReaderSyncBehavior::ASK_EVERY_TIME);
+  const uint8_t behavior = doc["syncBehavior"] | static_cast<uint8_t>(KOReaderSyncBehavior::ASK_EVERY_TIME);
   profile.syncBehavior = behavior <= static_cast<uint8_t>(KOReaderSyncBehavior::SMART)
                              ? static_cast<KOReaderSyncBehavior>(behavior)
                              : KOReaderSyncBehavior::ASK_EVERY_TIME;
@@ -1599,8 +1601,8 @@ bool JsonSettingsIO::loadReadingStatsDocument(ReadingStatsStore& store, const Js
   }
   const uint32_t formatVersion = formatValue | static_cast<uint32_t>(1);
   if (formatVersion == 0 || formatVersion > 6) {
-    CPR_VCODEX_LOG_EVENT("RST", std::string("Unsupported reading stats formatVersion: ") +
-                                   std::to_string(formatVersion));
+    CPR_VCODEX_LOG_EVENT("RST",
+                         std::string("Unsupported reading stats formatVersion: ") + std::to_string(formatVersion));
     return false;
   }
 
@@ -1769,8 +1771,7 @@ bool JsonSettingsIO::loadReadingStatsDocument(ReadingStatsStore& store, const Js
         aggregateMismatch = true;
       }
       if (declaredDay.readingMs > rebuiltMs) {
-        store.legacyReadingDays.push_back(
-            ReadingDayStats{declaredDay.dayOrdinal, declaredDay.readingMs - rebuiltMs});
+        store.legacyReadingDays.push_back(ReadingDayStats{declaredDay.dayOrdinal, declaredDay.readingMs - rebuiltMs});
       }
     }
 

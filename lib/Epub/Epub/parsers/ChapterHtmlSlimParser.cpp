@@ -36,7 +36,7 @@ constexpr uint32_t HARD_MIN_FREE_HEAP_FOR_TEXT_LAYOUT = 30 * 1024;
 constexpr uint32_t HARD_MIN_MAX_ALLOC_FOR_TEXT_LAYOUT = 20 * 1024;
 constexpr uint32_t MIN_FREE_HEAP_FOR_TABLE_BUFFERING = 64 * 1024;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_TABLE_BUFFERING = 40 * 1024;
-constexpr uint16_t TEXT_BLOCK_SPLIT_WORD_LIMIT = 350;
+constexpr uint16_t TEXT_BLOCK_SPLIT_WORD_LIMIT = 300;
 constexpr uint8_t INITIAL_PAGE_ELEMENT_RESERVE = 8;
 constexpr uint8_t INITIAL_TABLE_FRAGMENT_ROW_RESERVE = 8;
 constexpr uint32_t PAGE_ELEMENT_RESERVE_MIN_MAX_ALLOC = 1024;
@@ -452,6 +452,11 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
     return;
   }
 
+  // Flush before addWord() can force the word vector to grow from one large
+  // contiguous allocation to the next. This keeps long HTML text nodes within
+  // the ESP32-C3's largest allocatable heap block.
+  flushLongTextBlockIfNeeded();
+
   // Determine font style from depth-based tracking and CSS effective style
   const bool isBold = boldUntilDepth < depth || effectiveBold;
   const bool isItalic = italicUntilDepth < depth || effectiveItalic;
@@ -484,6 +489,20 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   partWordBufferIndex = 0;
   nextWordContinues = false;
   listItemBulletOnly = false;
+}
+
+void ChapterHtmlSlimParser::flushLongTextBlockIfNeeded() {
+  if (!currentTextBlock || currentTextBlock->size() <= TEXT_BLOCK_SPLIT_WORD_LIMIT) {
+    return;
+  }
+
+  LOG_DBG("EHP", "Text block too long, splitting before vector growth");
+  const int horizontalInset = currentTextBlock->getBlockStyle().totalHorizontalInset();
+  const uint16_t effectiveWidth =
+      (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
+  currentTextBlock->layoutAndExtractLines(
+      renderer, fontId, effectiveWidth,
+      [this](const std::shared_ptr<TextBlock>& textBlock) { this->addLineToPage(textBlock); }, false);
 }
 
 // start a new text block if needed
@@ -1578,11 +1597,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         // flush word preceding <br/> to currentTextBlock before calling startNewTextBlock
         self->flushPartWordBuffer();
       }
-      // Tag the new block so startNewTextBlock can inject a full line-height gap if
-      // the block remains empty (i.e. <br> is a section separator between paragraphs).
-      // If the block gets text added before the next block opens it becomes non-empty,
-      // goes through makePages() normally, and the flag has no effect (inline <br> case).
+      // A <br> after text is a line break, not a new application of the parent
+      // paragraph margins. Consecutive/standalone <br> elements retain the
+      // existing empty-block scene-break behavior.
       BlockStyle brStyle = self->blockStyleStack.back();
+      if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
+        brStyle = brStyle.withoutTop().withoutBottom();
+      }
       brStyle.fromBrElement = true;
       self->startNewTextBlock(brStyle);
     } else {
@@ -1924,16 +1945,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   // There should be enough here to build out 1-2 full pages and doing this will free up a lot of
   // memory.
   // Spotted when reading Intermezzo, there are some really long text blocks in there.
-  if (self->currentTextBlock && self->currentTextBlock->size() > TEXT_BLOCK_SPLIT_WORD_LIMIT) {
-    LOG_DBG("EHP", "Text block too long, splitting into multiple pages");
-    const int horizontalInset = self->currentTextBlock->getBlockStyle().totalHorizontalInset();
-    const uint16_t effectiveWidth = (horizontalInset < self->viewportWidth)
-                                        ? static_cast<uint16_t>(self->viewportWidth - horizontalInset)
-                                        : self->viewportWidth;
-    self->currentTextBlock->layoutAndExtractLines(
-        self->renderer, self->fontId, effectiveWidth,
-        [self](const std::shared_ptr<TextBlock>& textBlock) { self->addLineToPage(textBlock); }, false);
-  }
+  self->flushLongTextBlockIfNeeded();
 }
 
 void XMLCALL ChapterHtmlSlimParser::defaultHandlerExpand(void* userData, const XML_Char* s, const int len) {

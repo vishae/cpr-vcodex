@@ -338,13 +338,13 @@ void EpubReaderActivity::onExit() {
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 
   APP_STATE.readerActivityLoadCount = 0;
-  APP_STATE.saveToFile();
   READING_STATS.endSession();
   ACHIEVEMENTS.recordSessionEnded(READING_STATS.getLastSessionSnapshot());
   bookmarkStore.save();
   invalidateCurrentOverlayPageCache();
   section.reset();
   epub.reset();
+  APP_STATE.saveToFile();
 }
 
 ReaderRenderSpec EpubReaderActivity::makeRenderSpec(const uint16_t viewportWidth, const uint16_t viewportHeight) const {
@@ -411,6 +411,10 @@ void EpubReaderActivity::loop() {
     if (section && section->isBuilding() && buildTickHeapGate()) {
       if (!section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK)) {
         LOG_ERR("ERS", "Background section build failed");
+        // Preserve the visible page across the rebuild. nextPageNumber is normally
+        // zero during ordinary page turns, which previously made a failed background
+        // build reopen the chapter at its first cached page.
+        nextPageNumber = section->currentPage;
         section.reset();
         requestUpdate();
       } else if (section->isBuildComplete() && applyDeferredReposition()) {
