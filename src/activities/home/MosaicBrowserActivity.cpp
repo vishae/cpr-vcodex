@@ -26,7 +26,7 @@
 #include "fontIds.h"
 
 namespace {
-constexpr unsigned long kGenerateIdleMs = 250;   // wait this long after input before indexing a cover
+constexpr unsigned long kGenerateIdleMs = 250;  // wait this long after input before indexing a cover
 constexpr char kCacheDir[] = "/.crosspoint";
 
 std::string fileStem(const std::string& path) {
@@ -72,8 +72,7 @@ void MosaicBrowserActivity::loadBooks() {
     books.push_back(GridBook{path, fileStem(path), "", false});
   }
 
-  std::sort(books.begin(), books.end(),
-            [](const GridBook& a, const GridBook& b) { return a.label < b.label; });
+  std::sort(books.begin(), books.end(), [](const GridBook& a, const GridBook& b) { return a.label < b.label; });
 }
 
 int MosaicBrowserActivity::pageStartFor(size_t index) const {
@@ -287,9 +286,8 @@ void MosaicBrowserActivity::rebuildIndexFromScratch() {
 void MosaicBrowserActivity::promptIndexUpdate(IndexStatus status) {
   const auto mode =
       status == IndexStatus::Stale ? MosaicIndexPromptActivity::Mode::Stale : MosaicIndexPromptActivity::Mode::NoCache;
-  startActivityForResult(
-      std::make_unique<MosaicIndexPromptActivity>(renderer, mappedInput, mode, libraryPath),
-      [this, status](const ActivityResult& result) { onIndexPromptResult(result, status); });
+  startActivityForResult(std::make_unique<MosaicIndexPromptActivity>(renderer, mappedInput, mode, libraryPath),
+                         [this, status](const ActivityResult& result) { onIndexPromptResult(result, status); });
 }
 
 void MosaicBrowserActivity::onIndexPromptResult(const ActivityResult& result, IndexStatus status) {
@@ -336,8 +334,8 @@ void MosaicBrowserActivity::saveIndex() const {
   index.fingerprint = currentFingerprint;
   index.entries.reserve(books.size());
   for (const auto& book : books) {
-    index.entries.push_back(MosaicLibraryIndex::Entry{book.path, book.label, book.author, book.series,
-                                                      book.seriesIndex});
+    index.entries.push_back(
+        MosaicLibraryIndex::Entry{book.path, book.label, book.author, book.series, book.seriesIndex});
   }
   MosaicLibraryIndex::save(index);
 }
@@ -425,8 +423,7 @@ void MosaicBrowserActivity::launchGroupPicker() {
       // but the thumb path is a pure hash of the book path, so it can be derived
       // without touching the file. If no thumb has been generated yet the tile
       // just falls back to the placeholder (Serena's call: don't generate here).
-      group.coverBmpPath =
-          book.coverBmpPath.empty() ? Epub(book.path, kCacheDir).getThumbBmpPath() : book.coverBmpPath;
+      group.coverBmpPath = book.coverBmpPath.empty() ? Epub(book.path, kCacheDir).getThumbBmpPath() : book.coverBmpPath;
     }
   }
 
@@ -523,18 +520,18 @@ void MosaicBrowserActivity::onPickFolderResult(const ActivityResult& result) {
   // The new folder has no index (CGV-010/CGV-011). Offer to build it now rather
   // than waiting for the next grouping open to discover it — the covers are
   // worth pre-generating even with grouping off.
-  startActivityForResult(
-      std::make_unique<MosaicIndexPromptActivity>(renderer, mappedInput, MosaicIndexPromptActivity::Mode::NoCache,
-                                                  libraryPath),
-      [this](const ActivityResult& promptResult) {
-        if (promptResult.isCancelled) {
-          indexPromptDeclined = true;
-          checkLibraryFolder();
-          return;
-        }
-        startActivityForResult(std::make_unique<MosaicMetadataGenerateActivity>(renderer, mappedInput),
+  startActivityForResult(std::make_unique<MosaicIndexPromptActivity>(
+                             renderer, mappedInput, MosaicIndexPromptActivity::Mode::NoCache, libraryPath),
+                         [this](const ActivityResult& promptResult) {
+                           if (promptResult.isCancelled) {
+                             indexPromptDeclined = true;
+                             checkLibraryFolder();
+                             return;
+                           }
+                           startActivityForResult(
+                               std::make_unique<MosaicMetadataGenerateActivity>(renderer, mappedInput),
                                [this](const ActivityResult&) { checkLibraryFolder(); });
-      });
+                         });
 }
 
 void MosaicBrowserActivity::onExit() {
@@ -566,10 +563,9 @@ void MosaicBrowserActivity::loop() {
     } else if (books.empty()) {
       // Folder missing or has no books — offer the picker either way, instead
       // of dead-ending on an empty grid with only Home to press.
-      startActivityForResult(
-          std::make_unique<FileBrowserActivity>(renderer, mappedInput, libraryPath,
-                                                FileBrowserActivity::Mode::PickFolder),
-          [this](const ActivityResult& pickResult) { onPickFolderResult(pickResult); });
+      startActivityForResult(std::make_unique<FileBrowserActivity>(renderer, mappedInput, libraryPath,
+                                                                   FileBrowserActivity::Mode::PickFolder),
+                             [this](const ActivityResult& pickResult) { onPickFolderResult(pickResult); });
     }
     return;
   }
@@ -663,7 +659,6 @@ void MosaicBrowserActivity::render(RenderLock&&) {
   }
   GUI.drawHeader(renderer, Rect{0, m.topPadding, pageWidth, m.headerHeight}, title.c_str());
 
-
   if (total == 0) {
     if (!infoDialogVisible) {
       renderer.drawCenteredText(UI_10_FONT_ID, m.topPadding + m.headerHeight + 40, tr(STR_NO_FILES_FOUND));
@@ -678,12 +673,10 @@ void MosaicBrowserActivity::render(RenderLock&&) {
   // "Home" only when Back actually leaves for the home screen. Inside a group it
   // returns to the picker (BUG-004), and dismisses the info dialog when that's
   // showing — both are "Back", not "Home" (BUG-005).
-  const bool backReturnsToPicker =
-      grouping != CrossPointSettings::MOSAIC_GROUPING_NONE && !allBooksForGrouping.empty();
+  const bool backReturnsToPicker = grouping != CrossPointSettings::MOSAIC_GROUPING_NONE && !allBooksForGrouping.empty();
   const char* backLabel = (infoDialogVisible || backReturnsToPicker) ? tr(STR_BACK) : tr(STR_HOME);
-  const auto labels =
-      mappedInput.mapLabels(backLabel, books.empty() ? tr(STR_CHOOSE_ANOTHER) : tr(STR_OPEN),
-                            books.empty() ? "" : tr(STR_DIR_UP), books.empty() ? "" : tr(STR_DIR_DOWN));
+  const auto labels = mappedInput.mapLabels(backLabel, books.empty() ? tr(STR_CHOOSE_ANOTHER) : tr(STR_OPEN),
+                                            books.empty() ? "" : tr(STR_DIR_UP), books.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   // First-time indexing overlay: the metadata-cache build for never-opened
@@ -708,11 +701,13 @@ void MosaicBrowserActivity::render(RenderLock&&) {
 
     // Missing: path first ("/library doesn't exist..."). Empty: path parenthesised
     // at the end ("No books were found in this folder (/library)") — Serena's wording.
-    const std::string body = infoDialogMissing ? libraryPath + " " + tr(STR_LIBRARY_FOLDER_MISSING_BODY)
-                                               : std::string(tr(STR_LIBRARY_FOLDER_EMPTY_BODY)) + " (" + libraryPath + ")";
+    const std::string body = infoDialogMissing
+                                 ? libraryPath + " " + tr(STR_LIBRARY_FOLDER_MISSING_BODY)
+                                 : std::string(tr(STR_LIBRARY_FOLDER_EMPTY_BODY)) + " (" + libraryPath + ")";
 
     std::vector<std::string> bodyLines = wrapText(renderer, UI_10_FONT_ID, body, maxLineWidth);
-    std::vector<std::string> hintLines = wrapText(renderer, UI_10_FONT_ID, tr(STR_LIBRARY_FOLDER_DIALOG_HINT), maxLineWidth);
+    std::vector<std::string> hintLines =
+        wrapText(renderer, UI_10_FONT_ID, tr(STR_LIBRARY_FOLDER_DIALOG_HINT), maxLineWidth);
     std::vector<std::string> dismissLines =
         wrapText(renderer, UI_10_FONT_ID, tr(STR_LIBRARY_FOLDER_DIALOG_DISMISS), maxLineWidth);
 
@@ -727,8 +722,9 @@ void MosaicBrowserActivity::render(RenderLock&&) {
     renderer.fillRoundedRect(boxX, boxY, boxW, boxH, 8, Color::White);
     renderer.drawRoundedRect(boxX, boxY, boxW, boxH, 2, 8, true);
     int y = boxY + pad;
-    renderer.drawCenteredText(UI_10_FONT_ID, y, infoDialogMissing ? tr(STR_LIBRARY_FOLDER_MISSING) : tr(STR_LIBRARY_FOLDER_EMPTY),
-                              true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, y,
+                              infoDialogMissing ? tr(STR_LIBRARY_FOLDER_MISSING) : tr(STR_LIBRARY_FOLDER_EMPTY), true,
+                              EpdFontFamily::BOLD);
     y += lineH + lineGap;
     for (const auto& line : bodyLines) {
       renderer.drawCenteredText(UI_10_FONT_ID, y, line.c_str());

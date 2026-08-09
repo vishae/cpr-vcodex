@@ -752,20 +752,17 @@ void SettingsActivity::toggleCurrentSetting() {
               // offer to build it and pre-generate covers now, rather than
               // leaving the cost for the next Cover Grid open.
               startActivityForResult(
-                  std::make_unique<MosaicIndexPromptActivity>(renderer, mappedInput,
-                                                              MosaicIndexPromptActivity::Mode::NoCache,
-                                                              SETTINGS.libraryFolder),
+                  std::make_unique<MosaicIndexPromptActivity>(
+                      renderer, mappedInput, MosaicIndexPromptActivity::Mode::NoCache, SETTINGS.libraryFolder),
                   [this](const ActivityResult& promptResult) {
                     if (promptResult.isCancelled) return;
-                    startActivityForResult(
-                        std::make_unique<MosaicMetadataGenerateActivity>(renderer, mappedInput),
-                        [this](const ActivityResult&) { requestUpdate(); });
+                    startActivityForResult(std::make_unique<MosaicMetadataGenerateActivity>(renderer, mappedInput),
+                                           [this](const ActivityResult&) { requestUpdate(); });
                   });
             });
         break;
       case SettingAction::GenerateMosaicMetadata:
-        startActivityForResult(std::make_unique<MosaicMetadataGenerateActivity>(renderer, mappedInput),
-                               resultHandler);
+        startActivityForResult(std::make_unique<MosaicMetadataGenerateActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::DeleteMosaicCovers:
         // Confirm first — it's a deletion, even though a cheaply reversible one

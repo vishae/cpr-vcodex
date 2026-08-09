@@ -64,5 +64,4 @@ void drawIndexingOverlay(GfxRenderer& renderer);
 // First item index of the page containing `index`.
 int pageStartFor(int index);
 
-
 }  // namespace MosaicGrid

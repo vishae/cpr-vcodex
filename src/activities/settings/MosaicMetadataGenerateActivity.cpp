@@ -5,11 +5,10 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <esp_heap_caps.h>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
-#include <esp_heap_caps.h>
-
 #include "activities/home/MosaicGrid.h"
 #include "activities/home/MosaicGridMetrics.h"
 #include "activities/home/MosaicLibraryIndex.h"
@@ -177,8 +176,8 @@ void MosaicMetadataGenerateActivity::render(RenderLock&&) {
     int y = top + lineHeight + metrics.verticalSpacing;
     GUI.drawProgressBar(
         renderer,
-        Rect{metrics.contentSidePadding, y, pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
-        pct, 100);
+        Rect{metrics.contentSidePadding, y, pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight}, pct,
+        100);
     // drawProgressBar already draws its own "N%" label 15px below the bar (BaseTheme::drawProgressBar) —
     // clear that line before drawing the count, or the two overlap.
     y += metrics.progressBarHeight + 15 + lineHeight + metrics.verticalSpacing;
@@ -191,7 +190,8 @@ void MosaicMetadataGenerateActivity::render(RenderLock&&) {
   } else {
     const int maxWidth = pageWidth - 40;
     const std::string heading = std::string(tr(STR_METADATA_GENERATION_COMPLETE)) + " " + libraryPath;
-    const std::string safeHeading = renderer.truncatedText(UI_10_FONT_ID, heading.c_str(), maxWidth, EpdFontFamily::BOLD);
+    const std::string safeHeading =
+        renderer.truncatedText(UI_10_FONT_ID, heading.c_str(), maxWidth, EpdFontFamily::BOLD);
     renderer.drawCenteredText(UI_10_FONT_ID, top, safeHeading.c_str(), true, EpdFontFamily::BOLD);
 
     std::string resultText = std::to_string(generatedCount) + " " + std::string(tr(STR_BOOKS_GENERATED));

@@ -104,8 +104,7 @@ void MosaicCoverCacheClearActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight},
-                 tr(STR_DELETE_MOSAIC_COVERS));
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_DELETE_MOSAIC_COVERS));
 
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = (pageHeight - lineHeight) / 2;

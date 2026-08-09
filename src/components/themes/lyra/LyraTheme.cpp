@@ -32,9 +32,9 @@
 #include "components/icons/settings2.h"
 #include "components/icons/text.h"
 #include "components/icons/text24.h"
+#include "components/icons/transfer.h"
 #include "components/icons/trophy.h"
 #include "components/icons/trophy24.h"
-#include "components/icons/transfer.h"
 #include "components/icons/wifi.h"
 #include "fontIds.h"
 #include "util/ReadingStatsAnalytics.h"
@@ -392,8 +392,7 @@ void LyraTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::ve
     const std::string label =
         textWidths[i] > 0 ? fitTabTextToWidth(renderer, fontId, tab.label, textWidths[i], EpdFontFamily::REGULAR)
                           : std::string();
-    const int textWidth =
-        label.empty() ? 0 : renderer.getTextWidth(fontId, label.c_str(), EpdFontFamily::REGULAR);
+    const int textWidth = label.empty() ? 0 : renderer.getTextWidth(fontId, label.c_str(), EpdFontFamily::REGULAR);
 
     if (tab.selected) {
       if (selected) {
@@ -686,10 +685,9 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     const uint8_t progressPercent =
         stats != nullptr ? (stats->completed ? 100 : std::min<uint8_t>(stats->lastProgressPercent, 100)) : 0;
     const std::string progressText = std::to_string(progressPercent) + "%";
-    const std::string statsText =
-        stats != nullptr
-            ? ReadingStatsAnalytics::formatDurationHm(stats->totalReadingMs) + " | " + std::to_string(stats->sessions) + "x"
-            : std::string("0m | 0x");
+    const std::string statsText = stats != nullptr ? ReadingStatsAnalytics::formatDurationHm(stats->totalReadingMs) +
+                                                         " | " + std::to_string(stats->sessions) + "x"
+                                                   : std::string("0m | 0x");
 
     auto titleLines = renderer.wrappedText(UI_12_FONT_ID, book.title.c_str(), textWidth, 3, EpdFontFamily::BOLD);
 
@@ -747,15 +745,14 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
                                const std::function<bool(int index)>& showAccessory) const {
   const int availableHeight = std::max(0, rect.height);
   const int gap = LyraMetrics::values.menuSpacing;
-  const int rowHeight =
-      buttonCount > 0
-          ? std::min(LyraMetrics::values.menuRowHeight, (availableHeight - gap * std::max(0, buttonCount - 1)) / buttonCount)
-          : LyraMetrics::values.menuRowHeight;
+  const int rowHeight = buttonCount > 0 ? std::min(LyraMetrics::values.menuRowHeight,
+                                                   (availableHeight - gap * std::max(0, buttonCount - 1)) / buttonCount)
+                                        : LyraMetrics::values.menuRowHeight;
 
   for (int i = 0; i < buttonCount; ++i) {
     int tileWidth = rect.width - LyraMetrics::values.contentSidePadding * 2;
-    Rect tileRect = Rect{rect.x + LyraMetrics::values.contentSidePadding, rect.y + i * (rowHeight + gap), tileWidth,
-                         rowHeight};
+    Rect tileRect =
+        Rect{rect.x + LyraMetrics::values.contentSidePadding, rect.y + i * (rowHeight + gap), tileWidth, rowHeight};
 
     const bool selected = selectedIndex == i;
 

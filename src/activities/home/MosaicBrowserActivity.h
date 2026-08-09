@@ -48,7 +48,8 @@ class MosaicBrowserActivity final : public Activity {
   size_t selectorIndex = 0;
   unsigned long lastInputMs = 0;  // for the idle gate before generating a cover
   std::vector<GridBook> books;
-  std::vector<GridBook> allBooksForGrouping;  // full metadata-loaded list, cached so Back can re-show the group picker without a rescan (CGV-002)
+  std::vector<GridBook> allBooksForGrouping;  // full metadata-loaded list, cached so Back can re-show the group picker
+                                              // without a rescan (CGV-002)
   std::string libraryPath = "/books";
   uint8_t grouping = 0;  // session copy of SETTINGS.mosaicDefaultGrouping, set in onEnter (CGV-002)
 
@@ -64,7 +65,7 @@ class MosaicBrowserActivity final : public Activity {
   void computeLayout();
   void loadBooks();
   int pageStartFor(size_t index) const;
-  int visiblePagePending() const;  // index of the next un-indexed book on the visible page, or -1
+  int visiblePagePending() const;         // index of the next un-indexed book on the visible page, or -1
   void retrySkippedCoversOnPageChange();  // re-arm low-memory skips when the visible page moves (BUG-006)
   int lastPageStart = -1;
   void indexBook(int i);
@@ -102,9 +103,9 @@ class MosaicBrowserActivity final : public Activity {
   void continueToGroupPicker();
 
   // Grouping (CGV-002): eager author/series pass + two-step group picker.
-  std::string lastGroupName;                             // group last opened, so Back re-opens the picker on it (BUG-007)
-  std::string fallbackGroupName() const;                 // "Standalone books" by series, "Unknown" by author
-  std::string groupKeyFor(const GridBook& book) const;   // shared by the picker and the filter
+  std::string lastGroupName;              // group last opened, so Back re-opens the picker on it (BUG-007)
+  std::string fallbackGroupName() const;  // "Standalone books" by series, "Unknown" by author
+  std::string groupKeyFor(const GridBook& book) const;  // shared by the picker and the filter
   void loadGroupMetadata();
   void launchGroupPicker();
   void onGroupPickerResult(const ActivityResult& result);

@@ -33,8 +33,7 @@ int statusBarBatteryAreaWidth(const GfxRenderer& renderer, const ThemeMetrics& m
   if (showPercentage) {
     char pctBuf[8];
     snprintf(pctBuf, sizeof(pctBuf), "%u%%", powerManager.getBatteryPercentage());
-    return metrics.batteryWidth + BaseTheme::batteryPercentSpacing +
-           renderer.getTextWidth(SMALL_FONT_ID, pctBuf);
+    return metrics.batteryWidth + BaseTheme::batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, pctBuf);
   }
   return statusBarBatteryIconOnlyWidth;
 }
@@ -233,8 +232,7 @@ void BaseTheme::drawProgressBar(const GfxRenderer& renderer, Rect rect, const si
 // (wrappedText() ellipsises anything that still doesn't fit). Shared so every
 // theme's drawButtonHints() gets the same behaviour.
 void BaseTheme::drawHintLabel(GfxRenderer& renderer, const int fontId, const char* label, const int x,
-                              const int boxWidth, const int boxTop, const int boxHeight,
-                              const int singleLineYOffset) {
+                              const int boxWidth, const int boxTop, const int boxHeight, const int singleLineYOffset) {
   constexpr int textPadding = 4;  // keeps a wrapped label off the button's border
   const int maxTextWidth = boxWidth - (textPadding * 2);
 

@@ -10,8 +10,8 @@
 #include "../../fontIds.h"
 #include "HalDisplay.h"
 
-MosaicIndexPromptActivity::MosaicIndexPromptActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                                     Mode mode, std::string libraryPath)
+MosaicIndexPromptActivity::MosaicIndexPromptActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, Mode mode,
+                                                     std::string libraryPath)
     : Activity("MosaicIndexPrompt", renderer, mappedInput), mode(mode), libraryPath(std::move(libraryPath)) {}
 
 void MosaicIndexPromptActivity::onEnter() {
@@ -21,9 +21,9 @@ void MosaicIndexPromptActivity::onEnter() {
   const int maxWidth = renderer.getScreenWidth() - (kMargin * 2);
 
   const bool stale = mode == Mode::Stale;
-  heading = renderer.truncatedText(
-      UI_10_FONT_ID, I18N.get(stale ? StrId::STR_LIBRARY_INDEX_STALE : StrId::STR_LIBRARY_INDEX_NEW), maxWidth,
-      EpdFontFamily::BOLD);
+  heading = renderer.truncatedText(UI_10_FONT_ID,
+                                   I18N.get(stale ? StrId::STR_LIBRARY_INDEX_STALE : StrId::STR_LIBRARY_INDEX_NEW),
+                                   maxWidth, EpdFontFamily::BOLD);
 
   // Body: what happened (with the folder read into that sentence rather than
   // dropped between two), then a line per button saying what it does — the

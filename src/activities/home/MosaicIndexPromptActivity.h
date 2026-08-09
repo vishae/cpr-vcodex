@@ -23,8 +23,7 @@ class MosaicIndexPromptActivity final : public Activity {
  public:
   enum class Mode { Stale, NoCache };
 
-  MosaicIndexPromptActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, Mode mode,
-                            std::string libraryPath);
+  MosaicIndexPromptActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, Mode mode, std::string libraryPath);
 
   void onEnter() override;
   void loop() override;
