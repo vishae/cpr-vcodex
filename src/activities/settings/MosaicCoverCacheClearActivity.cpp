@@ -14,16 +14,8 @@
 
 namespace {
 constexpr char kCacheDir[] = "/.crosspoint";
-constexpr char kThumbPrefix[] = "thumb_";
-constexpr char kBmpSuffix[] = ".bmp";
-
-bool isThumbnail(const char* name) {
-  const size_t len = strlen(name);
-  const size_t suffixLen = strlen(kBmpSuffix);
-  if (len <= strlen(kThumbPrefix) + suffixLen) return false;
-  if (strncmp(name, kThumbPrefix, strlen(kThumbPrefix)) != 0) return false;
-  return strcmp(name + len - suffixLen, kBmpSuffix) == 0;
-}
+// Per-book cache directories are named epub_<hash of the book's path>.
+constexpr char kBookCacheDirPrefix[] = "epub_";
 }  // namespace
 
 void MosaicCoverCacheClearActivity::onEnter() {
@@ -33,9 +25,17 @@ void MosaicCoverCacheClearActivity::onEnter() {
   requestUpdate(true);  // paint the "deleting" screen before the blocking walk starts
 }
 
-// One pass over /.crosspoint/*/, deleting only thumb_*.bmp. Paths are collected
-// before deleting rather than removed mid-iteration, since deleting from an open
-// directory handle is not reliable on FAT.
+// Removes each per-book cache directory under /.crosspoint/ entirely — contents
+// first, then the directory — so a re-test exercises the full path including
+// creating the folder, not just re-writing a thumbnail into an existing one
+// (Serena's call, 2026-08-09).
+//
+// The library index (/.crosspoint/mosaic_index.bin) is a file, not an epub_
+// directory, so it survives: grouping stays fast, and only per-book metadata and
+// covers are rebuilt.
+//
+// Paths are collected before deleting rather than removed mid-iteration, since
+// deleting from an open directory handle is not reliable on FAT.
 void MosaicCoverCacheClearActivity::deleteThumbnails() {
   auto cacheDir = Storage.open(kCacheDir);
   if (!cacheDir || !cacheDir.isDirectory()) {
@@ -50,14 +50,16 @@ void MosaicCoverCacheClearActivity::deleteThumbnails() {
   for (auto entry = cacheDir.openNextFile(); entry; entry = cacheDir.openNextFile()) {
     if (entry.isDirectory()) {
       entry.getName(nameBuf, sizeof(nameBuf));
-      bookDirs.push_back(std::string(kCacheDir) + "/" + nameBuf);
+      if (strncmp(nameBuf, kBookCacheDirPrefix, strlen(kBookCacheDirPrefix)) == 0) {
+        bookDirs.push_back(std::string(kCacheDir) + "/" + nameBuf);
+      }
     }
     entry.close();
   }
   cacheDir.close();
 
   for (const auto& bookDir : bookDirs) {
-    std::vector<std::string> toDelete;
+    std::vector<std::string> contents;
     auto dir = Storage.open(bookDir.c_str());
     if (!dir || !dir.isDirectory()) {
       if (dir) dir.close();
@@ -65,20 +67,18 @@ void MosaicCoverCacheClearActivity::deleteThumbnails() {
     }
     dir.rewindDirectory();
     for (auto entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
-      if (!entry.isDirectory()) {
-        entry.getName(nameBuf, sizeof(nameBuf));
-        if (isThumbnail(nameBuf)) toDelete.push_back(bookDir + "/" + nameBuf);
-      }
+      const bool isDir = entry.isDirectory();
+      entry.getName(nameBuf, sizeof(nameBuf));
       entry.close();
+      if (!isDir) contents.push_back(bookDir + "/" + nameBuf);
     }
     dir.close();
 
-    for (const auto& path : toDelete) {
-      if (Storage.remove(path.c_str())) deletedCount++;
-    }
+    for (const auto& path : contents) Storage.remove(path.c_str());
+    if (Storage.removeDir(bookDir.c_str())) deletedCount++;
   }
 
-  LOG_INF("MOSAIC", "Deleted %d generated cover thumbnails", deletedCount);
+  LOG_INF("MOSAIC", "Deleted %d per-book cache directories", deletedCount);
   state = State::DONE;
 }
 
