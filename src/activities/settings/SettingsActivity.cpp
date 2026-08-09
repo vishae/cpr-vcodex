@@ -23,6 +23,7 @@
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
+#include "MosaicCoverCacheClearActivity.h"
 #include "MosaicMetadataGenerateActivity.h"
 #include "OpdsServerListActivity.h"
 #include "OtaUpdateActivity.h"
@@ -240,6 +241,7 @@ const std::vector<SettingInfo>& getDeviceOnlyAppSettings() {
       SettingInfo::Enum(StrId::STR_MOSAIC_SERIES_DISPLAY, &CrossPointSettings::mosaicSeriesGroupDisplay,
                         {StrId::STR_DISPLAY_LIST, StrId::STR_DISPLAY_GRID}),
       SettingInfo::Action(StrId::STR_GENERATE_METADATA, SettingAction::GenerateMosaicMetadata),
+      SettingInfo::Action(StrId::STR_DELETE_MOSAIC_COVERS, SettingAction::DeleteMosaicCovers),
       SettingInfo::Section(StrId::STR_FLASHCARDS),
       SettingInfo::Action(StrId::STR_FLASHCARDS, SettingAction::Flashcards),
       SettingInfo::Enum(StrId::STR_STUDY_MODE, &CrossPointSettings::flashcardStudyMode,
@@ -764,6 +766,18 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::GenerateMosaicMetadata:
         startActivityForResult(std::make_unique<MosaicMetadataGenerateActivity>(renderer, mappedInput),
                                resultHandler);
+        break;
+      case SettingAction::DeleteMosaicCovers:
+        // Confirm first — it's a deletion, even though a cheaply reversible one
+        // (the covers regenerate; books and reading progress aren't touched).
+        startActivityForResult(
+            std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE_MOSAIC_COVERS),
+                                                   tr(STR_DELETE_MOSAIC_COVERS_CONFIRM)),
+            [this](const ActivityResult& result) {
+              if (result.isCancelled) return;
+              startActivityForResult(std::make_unique<MosaicCoverCacheClearActivity>(renderer, mappedInput),
+                                     [this](const ActivityResult&) { requestUpdate(); });
+            });
         break;
       case SettingAction::ClockSync:
         startActivityForResult(std::make_unique<ClockSyncActivity>(renderer, mappedInput), resultHandler);

@@ -1,0 +1,124 @@
+#include "MosaicCoverCacheClearActivity.h"
+
+#include <GfxRenderer.h>
+#include <HalStorage.h>
+#include <I18n.h>
+#include <Logging.h>
+
+#include <cstring>
+#include <vector>
+
+#include "MappedInputManager.h"
+#include "components/UITheme.h"
+#include "fontIds.h"
+
+namespace {
+constexpr char kCacheDir[] = "/.crosspoint";
+constexpr char kThumbPrefix[] = "thumb_";
+constexpr char kBmpSuffix[] = ".bmp";
+
+bool isThumbnail(const char* name) {
+  const size_t len = strlen(name);
+  const size_t suffixLen = strlen(kBmpSuffix);
+  if (len <= strlen(kThumbPrefix) + suffixLen) return false;
+  if (strncmp(name, kThumbPrefix, strlen(kThumbPrefix)) != 0) return false;
+  return strcmp(name + len - suffixLen, kBmpSuffix) == 0;
+}
+}  // namespace
+
+void MosaicCoverCacheClearActivity::onEnter() {
+  Activity::onEnter();
+  deletedCount = 0;
+  state = State::DELETING;
+  requestUpdate(true);  // paint the "deleting" screen before the blocking walk starts
+}
+
+// One pass over /.crosspoint/*/, deleting only thumb_*.bmp. Paths are collected
+// before deleting rather than removed mid-iteration, since deleting from an open
+// directory handle is not reliable on FAT.
+void MosaicCoverCacheClearActivity::deleteThumbnails() {
+  auto cacheDir = Storage.open(kCacheDir);
+  if (!cacheDir || !cacheDir.isDirectory()) {
+    if (cacheDir) cacheDir.close();
+    state = State::DONE;
+    return;
+  }
+
+  char nameBuf[512];
+  std::vector<std::string> bookDirs;
+  cacheDir.rewindDirectory();
+  for (auto entry = cacheDir.openNextFile(); entry; entry = cacheDir.openNextFile()) {
+    if (entry.isDirectory()) {
+      entry.getName(nameBuf, sizeof(nameBuf));
+      bookDirs.push_back(std::string(kCacheDir) + "/" + nameBuf);
+    }
+    entry.close();
+  }
+  cacheDir.close();
+
+  for (const auto& bookDir : bookDirs) {
+    std::vector<std::string> toDelete;
+    auto dir = Storage.open(bookDir.c_str());
+    if (!dir || !dir.isDirectory()) {
+      if (dir) dir.close();
+      continue;
+    }
+    dir.rewindDirectory();
+    for (auto entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+      if (!entry.isDirectory()) {
+        entry.getName(nameBuf, sizeof(nameBuf));
+        if (isThumbnail(nameBuf)) toDelete.push_back(bookDir + "/" + nameBuf);
+      }
+      entry.close();
+    }
+    dir.close();
+
+    for (const auto& path : toDelete) {
+      if (Storage.remove(path.c_str())) deletedCount++;
+    }
+  }
+
+  LOG_INF("MOSAIC", "Deleted %d generated cover thumbnails", deletedCount);
+  state = State::DONE;
+}
+
+void MosaicCoverCacheClearActivity::loop() {
+  if (state == State::DELETING) {
+    deleteThumbnails();
+    requestUpdate();
+    return;
+  }
+
+  if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
+      mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    finish();
+  }
+}
+
+void MosaicCoverCacheClearActivity::render(RenderLock&&) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto pageWidth = renderer.getScreenWidth();
+  const auto pageHeight = renderer.getScreenHeight();
+
+  renderer.clearScreen();
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight},
+                 tr(STR_DELETE_MOSAIC_COVERS));
+
+  const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const auto top = (pageHeight - lineHeight) / 2;
+
+  if (state == State::DELETING) {
+    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_DELETING_MOSAIC_COVERS), true, EpdFontFamily::BOLD);
+    const auto labels = mappedInput.mapLabels("", "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  } else {
+    const std::string result = std::to_string(deletedCount) + " " + tr(STR_MOSAIC_COVERS_DELETED);
+    renderer.drawCenteredText(UI_10_FONT_ID, top, result.c_str(), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing,
+                              tr(STR_MOSAIC_COVERS_DELETED_HINT));
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  }
+
+  renderer.displayBuffer();
+}

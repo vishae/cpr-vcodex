@@ -50,6 +50,7 @@ enum class SettingAction {
   DownloadFonts,
   LibraryFolder,
   GenerateMosaicMetadata,
+  DeleteMosaicCovers,
 };
 
 struct SettingInfo {
