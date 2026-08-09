@@ -123,16 +123,22 @@ void MosaicBrowserActivity::indexBook(int i) {
   GridBook& book = books[i];
   book.loaded = true;
 
-  if (FsHelpers::hasEpubExtension(book.path)) {
+  if (!FsHelpers::hasEpubExtension(book.path)) {
+    MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::NotEpub);  // TEMPORARY (BUG-006)
+  } else {
     Epub epub(book.path, kCacheDir);
     // Metadata-only load: parses just the OPF (title + cover) and skips the
     // expensive spine-size build. Reuses the full cache if already indexed.
-    if (epub.loadMetadataOnly()) {
+    if (!epub.loadMetadataOnly()) {
+      MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::MetadataFailed);  // TEMPORARY (BUG-006)
+    } else {
       const std::string& title = epub.getTitle();
       if (!title.empty()) book.label = title;
       book.coverBmpPath = epub.getThumbBmpPath();
       const std::string thumb = UITheme::getCoverThumbPath(book.coverBmpPath, layout.coverW, layout.coverH);
-      if (!Storage.exists(thumb.c_str())) {
+      if (Storage.exists(thumb.c_str())) {
+        MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::ThumbExists);  // TEMPORARY (BUG-006)
+      } else {
         // Generating a thumb decompresses the cover out of the zip — tens of KB
         // in one block (69,873 bytes in the BUG-006 report). With exceptions off
         // a failed allocation aborts the firmware, and there's no catching it
@@ -143,7 +149,9 @@ void MosaicBrowserActivity::indexBook(int i) {
         MosaicGrid::noteCoverCheck(largest);  // TEMPORARY (BUG-006): what the gate actually saw
         if (largest >= kCoverGenerationHeapFloor) {
           epub.generateThumbBmp(layout.coverW, layout.coverH);
+          MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::Generated);  // TEMPORARY (BUG-006)
         } else {
+          MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::SkippedLowMemory);  // TEMPORARY (BUG-006)
           LOG_INF("MOSAIC", "Skipping cover generation for %s: largest free block %u below floor", book.path.c_str(),
                   largest);
           // Skipped for now, not for good: the book stays marked loaded so the

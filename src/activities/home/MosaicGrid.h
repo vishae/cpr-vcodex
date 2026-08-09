@@ -63,4 +63,9 @@ void drawHeapDebugLine(GfxRenderer& renderer, int y);
 // rather than the at-rest one.
 void noteCoverCheck(size_t largestFreeBlock);
 
+// TEMPORARY (BUG-006 diagnosis): count which way each indexBook() attempt went,
+// so the screen shows where the path exits instead of leaving it to inference.
+enum class IndexOutcome { NotEpub, MetadataFailed, ThumbExists, Generated, SkippedLowMemory };
+void noteIndexOutcome(IndexOutcome outcome);
+
 }  // namespace MosaicGrid

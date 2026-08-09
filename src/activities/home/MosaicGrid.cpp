@@ -117,6 +117,12 @@ void noteCoverCheck(const size_t largestFreeBlock) {
   if (largestFreeBlock < lowestCoverCheck) lowestCoverCheck = largestFreeBlock;
 }
 
+namespace {
+int outcomeCounts[5] = {0, 0, 0, 0, 0};
+}  // namespace
+
+void noteIndexOutcome(const IndexOutcome outcome) { outcomeCounts[static_cast<int>(outcome)]++; }
+
 void drawHeapDebugLine(GfxRenderer& renderer, const int y) {
   // "min" is the point of this readout. free/largest are sampled during render,
   // but a cover is decompressed in loop() and freed again before the next
@@ -134,6 +140,15 @@ void drawHeapDebugLine(GfxRenderer& renderer, const int y) {
       "chk=" + (lastCoverCheck == 0 ? std::string("-") : std::to_string(lastCoverCheck)) +
       " chkmin=" + (lowestCoverCheck == SIZE_MAX ? std::string("-") : std::to_string(lowestCoverCheck));
   renderer.drawText(SMALL_FONT_ID, 6, y + renderer.getTextHeight(SMALL_FONT_ID) + 2, gateLine.c_str());
+
+  // Third line: how each indexBook() attempt ended. With chk showing "-" the
+  // gate is never reached, so this says which earlier branch is taking them.
+  const std::string outcomeLine = "notepub=" + std::to_string(outcomeCounts[0]) +
+                                  " metafail=" + std::to_string(outcomeCounts[1]) +
+                                  " hasthumb=" + std::to_string(outcomeCounts[2]) +
+                                  " gen=" + std::to_string(outcomeCounts[3]) +
+                                  " lowmem=" + std::to_string(outcomeCounts[4]);
+  renderer.drawText(SMALL_FONT_ID, 6, y + (renderer.getTextHeight(SMALL_FONT_ID) + 2) * 2, outcomeLine.c_str());
 }
 
 void drawIndexingOverlay(GfxRenderer& renderer) {
