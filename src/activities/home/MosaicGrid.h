@@ -38,6 +38,17 @@ struct Layout {
 
 Layout computeLayout(GfxRenderer& renderer);
 
+// Don't start a cover generation unless this much contiguous heap is free
+// (BUG-006). Generating decompresses the cover out of the zip — tens of KB in
+// one block — and with exceptions off a failed allocation aborts the firmware,
+// so it has to be refused before it starts rather than caught afterwards.
+//
+// Tuned on device 2026-08-09 against what the check itself sees inside a group
+// (57-59 KB), not the ~98 KB the heap shows at rest: earlier floors of 80 and
+// 72 KB were taken from the at-rest figure and vetoed nearly everything.
+// Shared so the grid and the bulk generator apply the same rule.
+constexpr size_t COVER_GENERATION_HEAP_FLOOR = 48 * 1024;
+
 // Paint one page of tiles. `pageStart` is the first item index on the visible
 // page; `total` is the whole list's size. `coverBmpPath` returns the base thumb
 // path for an item, or "" for a placeholder tile.

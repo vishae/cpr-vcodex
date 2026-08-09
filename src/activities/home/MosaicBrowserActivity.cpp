@@ -27,18 +27,6 @@
 
 namespace {
 constexpr unsigned long kGenerateIdleMs = 250;   // wait this long after input before indexing a cover
-// Don't start a cover generation unless this much contiguous heap is free
-// (BUG-006). Tuned against what the gate itself sees, measured on device
-// 2026-08-09 inside a group: 57-59 KB, not the 98 KB the heap shows at rest —
-// by then the book lists and the EPUB object hold the difference. Earlier
-// floors of 80 KB and 72 KB were both set from the at-rest figure and vetoed
-// nearly everything (4 generated, 41 skipped at 72 KB), which is a worse outcome
-// than the crash they guard against: no covers at all, permanently.
-//
-// 48 KB keeps a real refusal point — the crash happened with the heap far
-// deeper into exhaustion than this — while clearing the steady-state value by
-// enough that normal browsing generates covers.
-constexpr size_t kCoverGenerationHeapFloor = 48 * 1024;
 constexpr char kCacheDir[] = "/.crosspoint";
 
 std::string fileStem(const std::string& path) {
@@ -149,7 +137,7 @@ void MosaicBrowserActivity::indexBook(int i) {
         // her place and reboots.
         const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
         MosaicGrid::noteCoverCheck(largest);  // TEMPORARY (BUG-006): what the gate actually saw
-        if (largest >= kCoverGenerationHeapFloor) {
+        if (largest >= MosaicGrid::COVER_GENERATION_HEAP_FLOOR) {
           epub.generateThumbBmp(layout.coverW, layout.coverH);
           MosaicGrid::noteIndexOutcome(MosaicGrid::IndexOutcome::Generated);  // TEMPORARY (BUG-006)
           // TEMPORARY (BUG-006): how close a real generation came to the floor.

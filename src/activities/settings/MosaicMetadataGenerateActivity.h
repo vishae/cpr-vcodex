@@ -23,7 +23,12 @@
  */
 class MosaicMetadataGenerateActivity final : public Activity {
  public:
-  enum class State { GENERATING, DONE };
+  // Two passes, deliberately separate. Covers are generated first with nothing
+  // accumulating in RAM, then the index is built from the metadata caches that
+  // pass just warmed. Building both at once made headroom shrink as the run
+  // progressed, so low-memory skips clustered at the tail and recurred in the
+  // same place on every re-run — re-running could never fill them in.
+  enum class State { GENERATING, INDEXING, DONE };
 
   explicit MosaicMetadataGenerateActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("MosaicMetadataGenerate", renderer, mappedInput) {}
@@ -39,7 +44,8 @@ class MosaicMetadataGenerateActivity final : public Activity {
   std::string libraryPath;  // captured at onEnter for display on the DONE screen
   size_t currentIndex = 0;
   int generatedCount = 0;
-  int skippedCount = 0;
+  int skippedCount = 0;      // already had a thumbnail
+  int lowMemorySkipped = 0;  // refused by the heap floor (BUG-006)
   int coverW = 0;
   int coverH = 0;
 
@@ -48,5 +54,6 @@ class MosaicMetadataGenerateActivity final : public Activity {
   std::vector<MosaicLibraryIndex::Entry> indexEntries;
 
   void generateNext();
+  void indexNext();
   void saveIndex() const;
 };
