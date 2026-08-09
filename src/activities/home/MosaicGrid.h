@@ -58,4 +58,9 @@ int pageStartFor(int index);
 // used for the CGV-010 timings. Remove once BUG-006 is settled.
 void drawHeapDebugLine(GfxRenderer& renderer, int y);
 
+// TEMPORARY (BUG-006 measurement): record what the cover-generation gate saw,
+// so the floor can be tuned against the value it's actually compared with
+// rather than the at-rest one.
+void noteCoverCheck(size_t largestFreeBlock);
+
 }  // namespace MosaicGrid

@@ -104,6 +104,19 @@ void drawPage(GfxRenderer& renderer, const Layout& layout, const int pageStart, 
 // matters is how much headroom is actually left at the worst moment — biggest
 // group, covers not yet generated. Drawn on screen rather than logged so it can
 // be read without a serial cable. Remove once BUG-006 is settled.
+namespace {
+// Lowest value the cover-generation gate has been shown this boot, and how many
+// times it has run — the gate's own view, which is smaller than the at-rest
+// figure because the OPF parse has already taken its share by then.
+size_t lastCoverCheck = 0;
+size_t lowestCoverCheck = SIZE_MAX;
+}  // namespace
+
+void noteCoverCheck(const size_t largestFreeBlock) {
+  lastCoverCheck = largestFreeBlock;
+  if (largestFreeBlock < lowestCoverCheck) lowestCoverCheck = largestFreeBlock;
+}
+
 void drawHeapDebugLine(GfxRenderer& renderer, const int y) {
   // "min" is the point of this readout. free/largest are sampled during render,
   // but a cover is decompressed in loop() and freed again before the next
@@ -114,6 +127,13 @@ void drawHeapDebugLine(GfxRenderer& renderer, const int y) {
                            " largest=" + std::to_string(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)) +
                            " min=" + std::to_string(heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT));
   renderer.drawText(SMALL_FONT_ID, 6, y, line.c_str());
+
+  // Second line: what the cover-generation gate saw, last and lowest. This is
+  // the number the floor is compared against, so it's the one to tune from.
+  const std::string gateLine =
+      "chk=" + (lastCoverCheck == 0 ? std::string("-") : std::to_string(lastCoverCheck)) +
+      " chkmin=" + (lowestCoverCheck == SIZE_MAX ? std::string("-") : std::to_string(lowestCoverCheck));
+  renderer.drawText(SMALL_FONT_ID, 6, y + renderer.getTextHeight(SMALL_FONT_ID) + 2, gateLine.c_str());
 }
 
 void drawIndexingOverlay(GfxRenderer& renderer) {

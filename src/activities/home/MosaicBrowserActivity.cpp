@@ -28,11 +28,15 @@
 namespace {
 constexpr unsigned long kGenerateIdleMs = 250;   // wait this long after input before indexing a cover
 // Don't start a cover generation unless this much contiguous heap is free
-// (BUG-006). Measured 2026-08-09 on a healthy device: largest free block sits at
-// 98,292 bytes while browsing, and the decompression that crashed it wanted
-// 69,873 in one go — so this floor leaves the normal path untouched while
-// refusing to start one that can't finish.
-constexpr size_t kCoverGenerationHeapFloor = 80 * 1024;
+// (BUG-006). Tuning history, both measured on device 2026-08-09: at rest the
+// largest free block is 98,292 bytes, and a generation pulls the heap's
+// low-water mark down to 39,084 — so it needs on the order of 78 KB in total,
+// but by the time this check runs the OPF parse has already taken its share and
+// the largest block is well below the at-rest figure. An 80 KB floor rejected
+// almost every attempt (19 of 20 books stayed placeholders). This floor sits
+// above the ~70 KB single block the decompression asks for, with headroom, but
+// low enough not to veto a generation that would have succeeded.
+constexpr size_t kCoverGenerationHeapFloor = 72 * 1024;
 constexpr char kCacheDir[] = "/.crosspoint";
 
 std::string fileStem(const std::string& path) {
@@ -86,6 +90,24 @@ int MosaicBrowserActivity::pageStartFor(size_t index) const {
   return static_cast<int>(index / BOOKS_PER_PAGE) * BOOKS_PER_PAGE;
 }
 
+// A cover skipped because memory was tight gets another go once the visible
+// page changes — paging away frees whatever was holding the heap down, and
+// without this a single tight moment leaves the tile a placeholder for the rest
+// of the session (BUG-006).
+void MosaicBrowserActivity::retrySkippedCoversOnPageChange() {
+  const int pageStart = pageStartFor(selectorIndex);
+  if (pageStart == lastPageStart) return;
+  lastPageStart = pageStart;
+
+  const int pageEnd = std::min(pageStart + BOOKS_PER_PAGE, static_cast<int>(books.size()));
+  for (int i = pageStart; i < pageEnd; ++i) {
+    if (books[i].coverSkipped) {
+      books[i].coverSkipped = false;
+      books[i].loaded = false;
+    }
+  }
+}
+
 int MosaicBrowserActivity::visiblePagePending() const {
   const int pageStart = pageStartFor(selectorIndex);
   const int pageEnd = std::min(pageStart + BOOKS_PER_PAGE, static_cast<int>(books.size()));
@@ -117,14 +139,18 @@ void MosaicBrowserActivity::indexBook(int i) {
         // after the fact, so the check has to happen before. Below the floor the
         // tile keeps its placeholder: a missing cover is cosmetic, a crash loses
         // her place and reboots.
-        if (heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT) >= kCoverGenerationHeapFloor) {
+        const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+        MosaicGrid::noteCoverCheck(largest);  // TEMPORARY (BUG-006): what the gate actually saw
+        if (largest >= kCoverGenerationHeapFloor) {
           epub.generateThumbBmp(layout.coverW, layout.coverH);
         } else {
           LOG_INF("MOSAIC", "Skipping cover generation for %s: largest free block %u below floor", book.path.c_str(),
-                  heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
-          // Deliberately stays marked loaded: retrying would re-parse the OPF on
-          // every idle tick for as long as memory is tight, which spins instead
-          // of degrading. "Generate all covers" fills it in later.
+                  largest);
+          // Skipped for now, not for good: the book stays marked loaded so the
+          // idle tick doesn't re-parse its OPF in a spin, but coverSkipped makes
+          // it eligible again when the page changes — by then the memory that
+          // was tight has usually been released.
+          book.coverSkipped = true;
         }
       }
     }
@@ -621,6 +647,8 @@ void MosaicBrowserActivity::loop() {
   // Idle-gated incremental cover indexing for the visible page: only kick off a
   // (blocking) generation once the user has paused, so active scrolling stays
   // responsive.
+  retrySkippedCoversOnPageChange();
+
   const int next = visiblePagePending();
   if (next >= 0 && (millis() - lastInputMs) >= kGenerateIdleMs) {
     indexBook(next);

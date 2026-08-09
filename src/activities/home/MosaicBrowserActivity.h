@@ -38,6 +38,7 @@ class MosaicBrowserActivity final : public Activity {
     std::string label;          // filename stem at scan time, upgraded to the title once metadata loads
     std::string coverBmpPath;   // base thumb path, resolved when the book is indexed
     bool loaded = false;        // metadata + thumb attempted for this book
+    bool coverSkipped = false;  // thumb generation deferred on low memory (BUG-006); retried when the page changes
     std::string author;         // populated eagerly when grouping is active (CGV-002)
     std::string series;
     float seriesIndex = -1.0f;
@@ -64,6 +65,8 @@ class MosaicBrowserActivity final : public Activity {
   void loadBooks();
   int pageStartFor(size_t index) const;
   int visiblePagePending() const;  // index of the next un-indexed book on the visible page, or -1
+  void retrySkippedCoversOnPageChange();  // re-arm low-memory skips when the visible page moves (BUG-006)
+  int lastPageStart = -1;
   void indexBook(int i);
 
   // Library-folder setting + missing/empty-folder handling (CGV-005/CGV-011).
