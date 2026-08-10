@@ -363,9 +363,12 @@ void FileBrowserActivity::loop() {
         selectorIndex = findEntry(dirName) + (mode == Mode::PickFolder ? 1 : 0);
 
         requestUpdate();
-      } else if (mode == Mode::PickFolder) {
-        // BUG-001: PickFolder is always a modal picker (startActivityForResult) — cancel
-        // back to the caller instead of jumping to the device Home screen.
+      } else if (mode != Mode::Books) {
+        // BUG-001: a picker mode is always modal (startActivityForResult) — cancel back to
+        // the caller instead of jumping to the device Home screen. PickFirmware needs this
+        // as much as PickFolder: it opens at "/", so Back at root sent the user Home from
+        // inside Settings > System > SD firmware update, skipping both the update activity
+        // and the settings screen that launched it.
         ActivityResult res;
         res.isCancelled = true;
         setResult(std::move(res));
@@ -518,10 +521,9 @@ size_t FileBrowserActivity::findEntry(const std::string& name) const {
 }
 
 void FileBrowserActivity::launchNewFolderEntry() {
-  startActivityForResult(
-      std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_NEW_FOLDER_NAME_TITLE), "", 63,
-                                              InputType::FolderName),
-      [this](const ActivityResult& result) { onNewFolderNameResult(result); });
+  startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_NEW_FOLDER_NAME_TITLE),
+                                                                 "", 63, InputType::FolderName),
+                         [this](const ActivityResult& result) { onNewFolderNameResult(result); });
 }
 
 void FileBrowserActivity::onNewFolderNameResult(const ActivityResult& result) {
