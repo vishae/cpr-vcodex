@@ -167,7 +167,9 @@ const std::vector<SettingInfo>& getDeviceSystemSettings() {
       SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates),
       SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate),
       SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language),
-      SettingInfo::Action(StrId::STR_LIBRARY_FOLDER, SettingAction::LibraryFolder),
+      // Library folder moved to the Cover Grid page (CGV-016 / CGV-005): it is a
+      // Cover Grid setting that happened to live here, and the split cost a trip
+      // between two tabs to change one feature's behaviour.
   };
   return settings;
 }
@@ -192,9 +194,11 @@ const std::vector<SettingInfo>& getDeviceOnlySystemSettings() {
   return settings;
 }
 
-const std::vector<SettingInfo>& getDeviceOnlyAppSettings() {
+// Sync Day's own page (CGV-016). The RTC overrides that used to be applied to
+// these rows in rebuildAppSettingsList() now apply here — see
+// buildPageSettingsList().
+const std::vector<SettingInfo>& getSyncDayPageSettings() {
   static const std::vector<SettingInfo> settings = {
-      SettingInfo::Section(StrId::STR_SYNC_DAY),
       SettingInfo::Action(StrId::STR_SYNC_DAY, SettingAction::SyncDay),
       SettingInfo::Action(StrId::STR_TIME_ZONE, SettingAction::TimeZone),
       SettingInfo::Toggle(StrId::STR_DISPLAY_DAY, &CrossPointSettings::displayDay),
@@ -206,6 +210,32 @@ const std::vector<SettingInfo>& getDeviceOnlyAppSettings() {
       SettingInfo::Enum(
           StrId::STR_DATE_FORMAT, &CrossPointSettings::dateFormat,
           {StrId::STR_DATE_FORMAT_DD_MM_YYYY, StrId::STR_DATE_FORMAT_MM_DD_YYYY, StrId::STR_DATE_FORMAT_YYYY_MM_DD}),
+  };
+  return settings;
+}
+
+// Cover Grid's own page (CGV-016), including Library folder — moved off the
+// System tab (CGV-005), where it was the one Cover Grid setting living apart
+// from the rest.
+const std::vector<SettingInfo>& getCoverGridPageSettings() {
+  static const std::vector<SettingInfo> settings = {
+      SettingInfo::Action(StrId::STR_LIBRARY_FOLDER, SettingAction::LibraryFolder),
+      SettingInfo::Enum(StrId::STR_MOSAIC_GROUPING, &CrossPointSettings::mosaicDefaultGrouping,
+                        {StrId::STR_NONE_OPT, StrId::STR_BY_AUTHOR, StrId::STR_BY_SERIES}),
+      SettingInfo::Enum(StrId::STR_MOSAIC_AUTHOR_DISPLAY, &CrossPointSettings::mosaicAuthorGroupDisplay,
+                        {StrId::STR_DISPLAY_LIST, StrId::STR_DISPLAY_GRID}),
+      SettingInfo::Enum(StrId::STR_MOSAIC_SERIES_DISPLAY, &CrossPointSettings::mosaicSeriesGroupDisplay,
+                        {StrId::STR_DISPLAY_LIST, StrId::STR_DISPLAY_GRID}),
+      SettingInfo::Action(StrId::STR_GENERATE_METADATA, SettingAction::GenerateMosaicMetadata),
+      SettingInfo::Action(StrId::STR_DELETE_MOSAIC_COVERS, SettingAction::DeleteMosaicCovers),
+  };
+  return settings;
+}
+
+const std::vector<SettingInfo>& getDeviceOnlyAppSettings() {
+  static const std::vector<SettingInfo> settings = {
+      SettingInfo::Action(StrId::STR_SYNC_DAY, SettingAction::AppPageSyncDay),
+      SettingInfo::Action(StrId::STR_COVER_GRID, SettingAction::AppPageCoverGrid),
       SettingInfo::Section(StrId::STR_READING_STATS),
       SettingInfo::Action(StrId::STR_READING_STATS, SettingAction::ReadingStats),
       SettingInfo::Enum(StrId::STR_DAILY_GOAL, &CrossPointSettings::dailyGoalTarget,
@@ -233,21 +263,11 @@ const std::vector<SettingInfo>& getDeviceOnlyAppSettings() {
       SettingInfo::Action(StrId::STR_SCREEN_CLEAN, SettingAction::ScreenClean),
       SettingInfo::Action(StrId::STR_SLEEP, SettingAction::SleepApp),
       SettingInfo::Action(StrId::STR_IF_FOUND_RETURN_ME, SettingAction::IfFound),
-      SettingInfo::Section(StrId::STR_COVER_GRID),
-      SettingInfo::Enum(StrId::STR_MOSAIC_GROUPING, &CrossPointSettings::mosaicDefaultGrouping,
-                        {StrId::STR_NONE_OPT, StrId::STR_BY_AUTHOR, StrId::STR_BY_SERIES}),
-      SettingInfo::Enum(StrId::STR_MOSAIC_AUTHOR_DISPLAY, &CrossPointSettings::mosaicAuthorGroupDisplay,
-                        {StrId::STR_DISPLAY_LIST, StrId::STR_DISPLAY_GRID}),
-      SettingInfo::Enum(StrId::STR_MOSAIC_SERIES_DISPLAY, &CrossPointSettings::mosaicSeriesGroupDisplay,
-                        {StrId::STR_DISPLAY_LIST, StrId::STR_DISPLAY_GRID}),
-      SettingInfo::Action(StrId::STR_GENERATE_METADATA, SettingAction::GenerateMosaicMetadata),
-      SettingInfo::Action(StrId::STR_DELETE_MOSAIC_COVERS, SettingAction::DeleteMosaicCovers),
       SettingInfo::Section(StrId::STR_FLASHCARDS),
       SettingInfo::Action(StrId::STR_FLASHCARDS, SettingAction::Flashcards),
-      SettingInfo::Enum(StrId::STR_STUDY_MODE, &CrossPointSettings::flashcardStudyMode,
-                        {StrId::STR_DUE, StrId::STR_SCHEDULED, StrId::STR_RANDOM_PRACTICE, StrId::STR_SEQUENTIAL}),
-      SettingInfo::Enum(StrId::STR_SESSION_SIZE, &CrossPointSettings::flashcardSessionSize,
-                        {StrId::STR_NUM_10, StrId::STR_NUM_20, StrId::STR_NUM_30, StrId::STR_NUM_50, StrId::STR_ALL}),
+      // Study mode and Session size deliberately absent (CGV-016): both are
+      // already editable inside the app itself (FlashcardSettingsActivity), and
+      // remain in the shared registry for the web UI. This tab was a third copy.
       SettingInfo::Section(StrId::STR_SHORTCUTS_SECTION),
       SettingInfo::Action(StrId::STR_SHORTCUT_LOCATION, SettingAction::ShortcutLocation),
       SettingInfo::Action(StrId::STR_SHORTCUT_VISIBILITY, SettingAction::ShortcutVisibility),
@@ -430,13 +450,25 @@ void appendPrewarmText(std::string& text, const std::string& value) { appendPrew
 void SettingsActivity::onEnter() {
   Activity::onEnter();
 
+  selectedSettingIndex = 0;
+  prevTabLongPressHandled = false;
+
+  if (isAppPage()) {
+    // Page mode (CGV-016): one app's rows, no tab bar and no category lists to
+    // build. Row 0 is the header row here too, so the selection arithmetic and
+    // the Confirm/Back handling below stay shared with the tabbed screen.
+    buildPageSettingsList();
+    currentSettings = &pageSettings;
+    settingsCount = static_cast<int>(pageSettings.size());
+    requestUpdate();
+    return;
+  }
+
   settingsListsBuilt = false;
   buildSettingsLists();
 
   // Reset selection to first category
   selectedCategoryIndex = 0;
-  selectedSettingIndex = 0;
-  prevTabLongPressHandled = false;
   enterCategory(0);
 
   // Trigger first update
@@ -484,31 +516,61 @@ void SettingsActivity::buildSettingsLists() {
 void SettingsActivity::rebuildAppSettingsList() {
   const auto& deviceApps = getDeviceOnlyAppSettings();
   appSettings.clear();
-  appSettingOverrides.clear();
   appSettings.reserve(deviceApps.size());
+  // The RTC overrides that used to live here moved with the Sync Day rows onto
+  // that app's page (CGV-016) — see buildPageSettingsList(). The Apps tab's own
+  // Sync Day row is a plain link to the page and needs no substitution.
+  for (const auto& setting : deviceApps) {
+    appSettings.push_back(&setting);
+  }
+}
 
-  const bool rtcClockActive = SETTINGS.isHardwareRtcAutoDayClockActive();
+StrId SettingsActivity::appPageTitleId() const {
+  switch (appPage) {
+    case AppSettingsPage::SyncDay:
+      return StrId::STR_SYNC_DAY;
+    case AppSettingsPage::CoverGrid:
+      return StrId::STR_COVER_GRID;
+    case AppSettingsPage::None:
+      break;
+  }
+  return StrId::STR_APPS;
+}
+
+// Build the row list for one app's page. Sync Day carries the hardware-RTC
+// substitutions that rebuildAppSettingsList() used to apply: with the RTC clock
+// active there is nothing to sync over WiFi, so "Sync day" becomes "Clock sync
+// now", the reminder interval is dropped, and Display day gains time options.
+// appSettingOverrides is the backing store for those synthesised entries and is
+// reserved up front, since pageSettings holds pointers into it.
+void SettingsActivity::buildPageSettingsList() {
+  const auto& source = appPage == AppSettingsPage::SyncDay ? getSyncDayPageSettings() : getCoverGridPageSettings();
+  pageSettings.clear();
+  appSettingOverrides.clear();
+  pageSettings.reserve(source.size());
+
+  const bool rtcClockActive = appPage == AppSettingsPage::SyncDay && SETTINGS.isHardwareRtcAutoDayClockActive();
   if (rtcClockActive) {
     // Two overrides replace Sync Day + Display Day entries; reserve so stored pointers stay valid.
     appSettingOverrides.reserve(2);
   }
-  for (const auto& setting : deviceApps) {
-    if (setting.nameId == StrId::STR_SYNC_DAY_REMINDER_EVERY && rtcClockActive) {
+  for (const auto& setting : source) {
+    if (rtcClockActive && setting.nameId == StrId::STR_SYNC_DAY_REMINDER_EVERY) {
       continue;
     }
     if (rtcClockActive && setting.nameId == StrId::STR_SYNC_DAY && setting.type == SettingType::ACTION) {
       appSettingOverrides.push_back(SettingInfo::Action(StrId::STR_CLOCK_SYNC_NOW, SettingAction::ClockSync));
-      appSettings.push_back(&appSettingOverrides.back());
+      pageSettings.push_back(&appSettingOverrides.back());
       continue;
     }
     if (rtcClockActive && setting.nameId == StrId::STR_DISPLAY_DAY && setting.type == SettingType::TOGGLE) {
       appSettingOverrides.push_back(SettingInfo::Enum(StrId::STR_DISPLAY_DAY_TIME, &CrossPointSettings::displayDay,
                                                       {StrId::STR_STATE_OFF, StrId::STR_DISPLAY_DATE_ONLY,
                                                        StrId::STR_DISPLAY_TIME_ONLY, StrId::STR_DISPLAY_DAY_AND_TIME}));
-      appSettings.push_back(&appSettingOverrides.back());
+      pageSettings.push_back(&appSettingOverrides.back());
       continue;
     }
-    appSettings.push_back(&setting);
+    pageSettings.push_back(&setting);
   }
 }
 
@@ -596,7 +658,9 @@ void SettingsActivity::loop() {
 
   // Handle actions with early return
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    if (selectedSettingIndex == 0) {
+    if (selectedSettingIndex == 0 && isAppPage()) {
+      // No tab to cycle to on an app page; row 0 is just the title.
+    } else if (selectedSettingIndex == 0) {
       selectedCategoryIndex = (selectedCategoryIndex < categoryCount - 1) ? (selectedCategoryIndex + 1) : 0;
       hasChangedCategory = true;
       requestUpdate();
@@ -610,7 +674,7 @@ void SettingsActivity::loop() {
   // Long-press Back at the tab row: previous tab instead of Home. The action's
   // own effect (leaving the tab row) doesn't self-guard against repeat-firing
   // the way FileBrowserActivity's go-to-root does, so use an explicit one-shot flag.
-  if (selectedSettingIndex == 0 && mappedInput.isPressed(MappedInputManager::Button::Back) &&
+  if (!isAppPage() && selectedSettingIndex == 0 && mappedInput.isPressed(MappedInputManager::Button::Back) &&
       mappedInput.getHeldTime() >= PREV_TAB_LONG_PRESS_MS && !prevTabLongPressHandled) {
     selectedCategoryIndex = ButtonNavigator::previousIndex(selectedCategoryIndex, categoryCount);
     enterCategory(selectedCategoryIndex);
@@ -627,6 +691,11 @@ void SettingsActivity::loop() {
     if (selectedSettingIndex > 0) {
       selectedSettingIndex = 0;
       requestUpdate();
+    } else if (isAppPage()) {
+      // Back off an app page returns to the Apps list, which still holds its own
+      // selection — the app row stays highlighted (CGV-016).
+      SETTINGS.saveToFile();
+      finish();
     } else {
       SETTINGS.saveToFile();
       onGoHome();
@@ -645,17 +714,21 @@ void SettingsActivity::loop() {
     requestUpdate();
   });
 
-  buttonNavigator.onNextContinuous([this, &hasChangedCategory] {
-    hasChangedCategory = true;
-    selectedCategoryIndex = ButtonNavigator::nextIndex(selectedCategoryIndex, categoryCount);
-    requestUpdate();
-  });
+  // Held next/previous jumps between tabs — meaningless on an app page, which
+  // has no tabs to jump to.
+  if (!isAppPage()) {
+    buttonNavigator.onNextContinuous([this, &hasChangedCategory] {
+      hasChangedCategory = true;
+      selectedCategoryIndex = ButtonNavigator::nextIndex(selectedCategoryIndex, categoryCount);
+      requestUpdate();
+    });
 
-  buttonNavigator.onPreviousContinuous([this, &hasChangedCategory] {
-    hasChangedCategory = true;
-    selectedCategoryIndex = ButtonNavigator::previousIndex(selectedCategoryIndex, categoryCount);
-    requestUpdate();
-  });
+    buttonNavigator.onPreviousContinuous([this, &hasChangedCategory] {
+      hasChangedCategory = true;
+      selectedCategoryIndex = ButtonNavigator::previousIndex(selectedCategoryIndex, categoryCount);
+      requestUpdate();
+    });
+  }
 
   if (hasChangedCategory) {
     selectedSettingIndex = (selectedSettingIndex == 0) ? 0 : firstSelectableSettingIndex();
@@ -904,6 +977,21 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::IfFound:
         startActivityForResult(std::make_unique<IfFoundActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::AppPageSyncDay:
+        startActivityForResult(std::make_unique<SettingsActivity>(renderer, mappedInput, AppSettingsPage::SyncDay),
+                               [this](const ActivityResult&) {
+                                 // The page may have changed a setting this list shows a value for.
+                                 SETTINGS.saveToFile();
+                                 requestUpdate(true);
+                               });
+        break;
+      case SettingAction::AppPageCoverGrid:
+        startActivityForResult(std::make_unique<SettingsActivity>(renderer, mappedInput, AppSettingsPage::CoverGrid),
+                               [this](const ActivityResult&) {
+                                 SETTINGS.saveToFile();
+                                 requestUpdate(true);
+                               });
+        break;
       case SettingAction::None:
         // Do nothing
         break;
@@ -1124,10 +1212,14 @@ void SettingsActivity::render(RenderLock&&) {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const char* settingsTitle = tr(STR_SETTINGS_TITLE);
-  const char* selectedCategoryLabel = I18N.get(categoryNames[selectedCategoryIndex]);
+  const char* selectedCategoryLabel =
+      isAppPage() ? I18N.get(appPageTitleId()) : I18N.get(categoryNames[selectedCategoryIndex]);
   const char* firmwareVersion = CROSSPOINT_VERSION;
   const char* confirmLabel = nullptr;
-  if (selectedSettingIndex == 0) {
+  if (selectedSettingIndex == 0 && isAppPage()) {
+    // Row 0 on an app page is the title; Confirm does nothing, so it gets no hint.
+    confirmLabel = "";
+  } else if (selectedSettingIndex == 0) {
     confirmLabel = I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount]);
   } else {
     const auto& selectedSetting = *(*currentSettings)[selectedSettingIndex - 1];
@@ -1168,7 +1260,20 @@ void SettingsActivity::render(RenderLock&&) {
   tabLabels.reserve(categoryCount);
   std::vector<TabInfo> tabs;
   tabs.reserve(categoryCount);
-  for (int i = 0; i < categoryCount; i++) {
+  // An app page draws a single tab carrying the app's name: it keeps the row-0
+  // selection visible and the list geometry identical to the tabbed screen,
+  // rather than introducing a second layout to keep in step (CGV-016).
+  const int tabCount = isAppPage() ? 1 : categoryCount;
+  for (int i = 0; i < tabCount; i++) {
+    if (isAppPage()) {
+      const char* pageLabel = I18N.get(appPageTitleId());
+      tabLabels.push_back(
+          utf8LimitChars(pageLabel != nullptr ? std::string(pageLabel) : std::string(), SETTINGS_TAB_MAX_CHARS));
+      tabs.push_back(
+          {tabLabels.back().c_str(), true,
+           utf8CodepointCount(pageLabel != nullptr ? std::string(pageLabel) : std::string()) > SETTINGS_TAB_MAX_CHARS});
+      continue;
+    }
     const char* fullLabel = I18N.get(categoryNames[i]);
     tabLabels.push_back(
         utf8LimitChars(fullLabel != nullptr ? std::string(fullLabel) : std::string(), SETTINGS_TAB_MAX_CHARS));
@@ -1185,7 +1290,14 @@ void SettingsActivity::render(RenderLock&&) {
                       pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
                                     metrics.buttonHintsHeight + metrics.verticalSpacing * 2 + listBottomGap)};
   const auto& settings = *currentSettings;
-  if (selectedCategoryIndex == 4) {
+  if (isAppPage()) {
+    // Page rows are plain settings — no Section headers to lay out, so the
+    // ordinary list renderer applies rather than the Apps tab's sectioned one.
+    GUI.drawList(
+        renderer, listRect, settingsCount, selectedSettingIndex - 1,
+        [&settings](int index) { return std::string(getSettingNameText(*settings[index])); }, nullptr, nullptr,
+        [&settings](int i) { return getSettingValueText(*settings[i]); }, true);
+  } else if (selectedCategoryIndex == 4) {
     renderAppSettingsList(listRect);
   } else {
     GUI.drawList(

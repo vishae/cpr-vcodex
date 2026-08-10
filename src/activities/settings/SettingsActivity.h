@@ -51,7 +51,17 @@ enum class SettingAction {
   LibraryFolder,
   GenerateMosaicMetadata,
   DeleteMosaicCovers,
+  // Open an app's own settings page (CGV-016). One action per page rather than a
+  // single action plus a payload field — SettingInfo has nowhere to carry the
+  // payload, and the switch already dispatches by action.
+  AppPageSyncDay,
+  AppPageCoverGrid,
 };
+
+// Which app's settings page a SettingsActivity instance is showing. `None` is the
+// ordinary tabbed settings screen; anything else is a single app's page, opened
+// from the Apps tab (CGV-016).
+enum class AppSettingsPage { None, SyncDay, CoverGrid };
 
 struct SettingInfo {
   StrId nameId;
@@ -192,8 +202,17 @@ class SettingsActivity final : public Activity {
   std::vector<SettingRef> systemSettings;
   std::vector<SettingRef> appSettings;
   std::vector<SettingInfo> appSettingOverrides;
+  std::vector<SettingRef> pageSettings;
   const std::vector<SettingRef>* currentSettings = nullptr;
   bool settingsListsBuilt = false;
+
+  // Page mode (CGV-016): when set, this instance shows one app's settings instead
+  // of the tabbed screen. Row 0 stays the header row in both modes so the
+  // selection arithmetic below is shared; only what row 0 *does* differs.
+  AppSettingsPage appPage = AppSettingsPage::None;
+  bool isAppPage() const { return appPage != AppSettingsPage::None; }
+  StrId appPageTitleId() const;
+  void buildPageSettingsList();
 
   static constexpr int categoryCount = 5;
   static const StrId categoryNames[categoryCount];
@@ -217,6 +236,9 @@ class SettingsActivity final : public Activity {
  public:
   explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("Settings", renderer, mappedInput) {}
+  // Page-mode constructor: one app's settings, no tab bar (CGV-016).
+  SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, AppSettingsPage page)
+      : Activity("Settings", renderer, mappedInput), appPage(page) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;
