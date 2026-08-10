@@ -414,6 +414,14 @@ std::string getSettingValueText(const SettingInfo& setting) {
         return I18N.getLanguageName(I18N.getLanguage());
       case SettingAction::LibraryFolder:
         return SETTINGS.libraryFolder;
+      // These two carried their filename as a side note drawn by the Apps tab's
+      // own renderer, which is gone (CGV-016). The filename comes through the
+      // ordinary value text instead — same information, now in the same place
+      // as every other row's value.
+      case SettingAction::ExportReadingStats:
+        return getReadingStatsExportFileName();
+      case SettingAction::ImportReadingStats:
+        return getLatestReadingStatsImportFileName();
       case SettingAction::ReadingStats: {
         const auto* definition = findShortcutDefinition(ShortcutId::ReadingStats);
         return definition ? ShortcutUiMetadata::getSubtitle(*definition) : "";
@@ -1113,140 +1121,6 @@ void SettingsActivity::toggleCurrentSetting() {
   }
 }
 
-void SettingsActivity::renderAppSettingsList(const Rect& rect) const {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto& settings = *currentSettings;
-  if (settings.empty() || rect.height <= 0) {
-    return;
-  }
-
-  const int rowHeight = metrics.listRowHeight;
-  const int sectionHeight = 40;
-  const int sidePadding = metrics.contentSidePadding;
-  constexpr int scrollBarWidth = 4;
-  constexpr int scrollBarGap = 6;
-  const int rowX = rect.x + sidePadding;
-  const int rowWidth = rect.width - sidePadding * 2 - scrollBarWidth - scrollBarGap;
-  const int viewportHeight = rect.height;
-
-  auto getItemHeight = [rowHeight, sectionHeight](const SettingInfo* setting) {
-    return setting->type == SettingType::SECTION ? sectionHeight : rowHeight;
-  };
-
-  std::vector<int> itemOffsets(settingsCount, 0);
-  int totalHeight = 0;
-  for (int index = 0; index < settingsCount; ++index) {
-    itemOffsets[index] = totalHeight;
-    totalHeight += getItemHeight(settings[index]);
-  }
-
-  int firstVisibleIndex = 0;
-  int visibleWindowHeight = 0;
-  if (selectedSettingIndex > 0) {
-    const int selectedIndex = std::clamp(selectedSettingIndex - 1, 0, settingsCount - 1);
-    for (int index = 0; index <= selectedIndex; ++index) {
-      visibleWindowHeight += getItemHeight(settings[index]);
-      while (visibleWindowHeight > viewportHeight && firstVisibleIndex <= index) {
-        visibleWindowHeight -= getItemHeight(settings[firstVisibleIndex]);
-        ++firstVisibleIndex;
-      }
-    }
-
-    if (firstVisibleIndex > 0 && settings[firstVisibleIndex - 1]->type == SettingType::SECTION) {
-      const int headerHeight = getItemHeight(settings[firstVisibleIndex - 1]);
-      if (visibleWindowHeight + headerHeight <= viewportHeight) {
-        --firstVisibleIndex;
-        visibleWindowHeight += headerHeight;
-      }
-    }
-  }
-
-  int currentY = rect.y;
-  int renderedHeight = 0;
-  for (int index = firstVisibleIndex; index < settingsCount; ++index) {
-    const auto& setting = settings[index];
-    const int itemHeight = getItemHeight(setting);
-    if (renderedHeight + itemHeight > viewportHeight) {
-      break;
-    }
-
-    if (setting->type == SettingType::SECTION) {
-      renderer.drawText(UI_10_FONT_ID, rowX, currentY + 4, getSettingNameText(*setting), true, EpdFontFamily::BOLD);
-      renderer.drawLine(rowX, currentY + itemHeight - 5, rowX + rowWidth, currentY + itemHeight - 5, true);
-      currentY += itemHeight;
-      renderedHeight += itemHeight;
-      continue;
-    }
-
-    const bool selected = selectedSettingIndex == index + 1;
-    const Rect rowRect{rowX, currentY, rowWidth, itemHeight - 4};
-    if (selected) {
-      renderer.fillRectDither(rowRect.x, rowRect.y, rowRect.width, rowRect.height, Color::LightGray);
-      renderer.drawRect(rowRect.x, rowRect.y, rowRect.width, rowRect.height);
-    }
-
-    const std::string valueText = getSettingValueText(*setting);
-    const bool showExportFileName =
-        setting->type == SettingType::ACTION && setting->action == SettingAction::ExportReadingStats;
-    const bool showImportFileName =
-        setting->type == SettingType::ACTION && setting->action == SettingAction::ImportReadingStats;
-    const std::string sideNote = showExportFileName
-                                     ? getReadingStatsExportFileName()
-                                     : (showImportFileName ? getLatestReadingStatsImportFileName() : std::string());
-    const int valueWidth =
-        valueText.empty() ? 0 : renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str(), EpdFontFamily::REGULAR);
-    const int leftPadding = 12;
-    const int rightPadding = 12;
-    if (showExportFileName || showImportFileName) {
-      const int sideNoteMaxWidth = rowRect.width / 2 - leftPadding - rightPadding;
-      const std::string truncatedSideNote =
-          sideNote.empty()
-              ? std::string()
-              : renderer.truncatedText(SMALL_FONT_ID, sideNote.c_str(), sideNoteMaxWidth, EpdFontFamily::REGULAR);
-      const int sideNoteWidth =
-          truncatedSideNote.empty()
-              ? 0
-              : renderer.getTextWidth(SMALL_FONT_ID, truncatedSideNote.c_str(), EpdFontFamily::REGULAR);
-
-      const int labelWidth = rowRect.width - leftPadding - rightPadding - (sideNoteWidth > 0 ? sideNoteWidth + 12 : 0);
-      const std::string titleText =
-          renderer.truncatedText(UI_10_FONT_ID, getSettingNameText(*setting), labelWidth, EpdFontFamily::REGULAR);
-      renderer.drawText(UI_10_FONT_ID, rowRect.x + leftPadding, rowRect.y + 9, titleText.c_str(), true,
-                        EpdFontFamily::REGULAR);
-      if (!truncatedSideNote.empty()) {
-        renderer.drawText(SMALL_FONT_ID, rowRect.x + rowRect.width - rightPadding - sideNoteWidth, rowRect.y + 11,
-                          truncatedSideNote.c_str(), true, EpdFontFamily::REGULAR);
-      }
-    } else {
-      const int labelWidth = rowRect.width - leftPadding - rightPadding - (valueWidth > 0 ? valueWidth + 12 : 0);
-      const std::string titleText =
-          renderer.truncatedText(UI_10_FONT_ID, getSettingNameText(*setting), labelWidth, EpdFontFamily::REGULAR);
-
-      renderer.drawText(UI_10_FONT_ID, rowRect.x + leftPadding, rowRect.y + 9, titleText.c_str(), true,
-                        EpdFontFamily::REGULAR);
-      if (!valueText.empty()) {
-        renderer.drawText(UI_10_FONT_ID, rowRect.x + rowRect.width - rightPadding - valueWidth, rowRect.y + 9,
-                          valueText.c_str(), true, EpdFontFamily::REGULAR);
-      }
-    }
-
-    currentY += itemHeight;
-    renderedHeight += itemHeight;
-  }
-
-  if (totalHeight > viewportHeight) {
-    const int scrollTrackX = rect.x + rect.width - sidePadding;
-    const int scrollOffset = itemOffsets[firstVisibleIndex];
-    const int scrollBarHeight = std::max(18, (viewportHeight * viewportHeight) / totalHeight);
-    const int maxScrollOffset = std::max(1, totalHeight - viewportHeight);
-    const int scrollBarY =
-        rect.y + ((viewportHeight - scrollBarHeight) * std::min(scrollOffset, maxScrollOffset)) / maxScrollOffset;
-
-    renderer.drawLine(scrollTrackX, rect.y, scrollTrackX, rect.y + viewportHeight, true);
-    renderer.fillRect(scrollTrackX - scrollBarWidth + 1, scrollBarY, scrollBarWidth, scrollBarHeight, true);
-  }
-}
-
 bool SettingsActivity::prewarmSettingsRenderText(const char* settingsTitle, const char* selectedCategoryLabel,
                                                  const char* firmwareVersion, const char* confirmLabel) const {
   auto* fontCache = renderer.getFontCacheManager();
@@ -1384,14 +1258,15 @@ void SettingsActivity::render(RenderLock&&) {
                       pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
                                     metrics.buttonHintsHeight + metrics.verticalSpacing * 2 + listBottomGap)};
   const auto& settings = *currentSettings;
-  if (selectedCategoryIndex == 4) {
-    renderAppSettingsList(listRect);
-  } else {
-    GUI.drawList(
-        renderer, listRect, settingsCount, selectedSettingIndex - 1,
-        [&settings](int index) { return std::string(getSettingNameText(*settings[index])); }, nullptr, nullptr,
-        [&settings](int i) { return getSettingValueText(*settings[i]); }, true);
-  }
+  // Every tab now draws through the same list. The Apps tab used to have its own
+  // sectioned renderer, which drew selection as a dithered fill with a border
+  // rather than the highlight GUI.drawList() uses everywhere else in Settings —
+  // visibly different from every other page. With the tab down to five plain
+  // rows there are no Section headers left for it to lay out (CGV-016).
+  GUI.drawList(
+      renderer, listRect, settingsCount, selectedSettingIndex - 1,
+      [&settings](int index) { return std::string(getSettingNameText(*settings[index])); }, nullptr, nullptr,
+      [&settings](int i) { return getSettingValueText(*settings[i]); }, true);
 
   // Draw help text
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));

@@ -229,7 +229,6 @@ class SettingsActivity final : public Activity {
   bool isSelectableSetting(int settingIndex) const;
   int firstSelectableSettingIndex() const;
   int stepSettingSelection(int direction) const;
-  void renderAppSettingsList(const Rect& rect) const;
   bool prewarmSettingsRenderText(const char* settingsTitle, const char* selectedCategoryLabel,
                                  const char* firmwareVersion, const char* confirmLabel) const;
   void showTransientPopup(const char* message, int progress = -1, unsigned long delayMs = 0);
