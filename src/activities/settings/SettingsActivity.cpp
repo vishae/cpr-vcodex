@@ -1311,6 +1311,32 @@ void SettingsActivity::render(RenderLock&&) {
   const bool prewarmedFonts =
       prewarmSettingsRenderText(settingsTitle, selectedCategoryLabel, firmwareVersion, confirmLabel);
 
+  // An app page renders like the other pages one level down in Settings —
+  // KOReader Sync and OPDS servers — rather than like a tab: header carrying the
+  // page's own name, list, hints, nothing else (CGV-016). Only the drawing
+  // differs; row 0 still exists as the header slot so the selection arithmetic
+  // stays shared with the tabbed screen.
+  if (isAppPage()) {
+    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, I18N.get(appPageTitleId()));
+
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+    const auto& pageRows = *currentSettings;
+    GUI.drawList(
+        renderer, Rect{0, contentTop, pageWidth, contentHeight}, settingsCount, selectedSettingIndex - 1,
+        [&pageRows](int index) { return std::string(getSettingNameText(*pageRows[index])); }, nullptr, nullptr,
+        [&pageRows](int index) { return getSettingValueText(*pageRows[index]); }, true);
+
+    const auto pageLabels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+    GUI.drawButtonHints(renderer, pageLabels.btn1, pageLabels.btn2, pageLabels.btn3, pageLabels.btn4);
+
+    renderer.displayBuffer();
+    if (prewarmedFonts) {
+      renderer.getFontCacheManager()->clearCache();
+    }
+    return;
+  }
+
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, settingsTitle, nullptr);
   HeaderDateUtils::drawTopLine(renderer, HeaderDateUtils::getDisplayDateText());
 
@@ -1341,20 +1367,7 @@ void SettingsActivity::render(RenderLock&&) {
   tabLabels.reserve(categoryCount);
   std::vector<TabInfo> tabs;
   tabs.reserve(categoryCount);
-  // An app page draws a single tab carrying the app's name: it keeps the row-0
-  // selection visible and the list geometry identical to the tabbed screen,
-  // rather than introducing a second layout to keep in step (CGV-016).
-  const int tabCount = isAppPage() ? 1 : categoryCount;
-  for (int i = 0; i < tabCount; i++) {
-    if (isAppPage()) {
-      const char* pageLabel = I18N.get(appPageTitleId());
-      tabLabels.push_back(
-          utf8LimitChars(pageLabel != nullptr ? std::string(pageLabel) : std::string(), SETTINGS_TAB_MAX_CHARS));
-      tabs.push_back(
-          {tabLabels.back().c_str(), true,
-           utf8CodepointCount(pageLabel != nullptr ? std::string(pageLabel) : std::string()) > SETTINGS_TAB_MAX_CHARS});
-      continue;
-    }
+  for (int i = 0; i < categoryCount; i++) {
     const char* fullLabel = I18N.get(categoryNames[i]);
     tabLabels.push_back(
         utf8LimitChars(fullLabel != nullptr ? std::string(fullLabel) : std::string(), SETTINGS_TAB_MAX_CHARS));
@@ -1371,14 +1384,7 @@ void SettingsActivity::render(RenderLock&&) {
                       pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
                                     metrics.buttonHintsHeight + metrics.verticalSpacing * 2 + listBottomGap)};
   const auto& settings = *currentSettings;
-  if (isAppPage()) {
-    // Page rows are plain settings — no Section headers to lay out, so the
-    // ordinary list renderer applies rather than the Apps tab's sectioned one.
-    GUI.drawList(
-        renderer, listRect, settingsCount, selectedSettingIndex - 1,
-        [&settings](int index) { return std::string(getSettingNameText(*settings[index])); }, nullptr, nullptr,
-        [&settings](int i) { return getSettingValueText(*settings[i]); }, true);
-  } else if (selectedCategoryIndex == 4) {
+  if (selectedCategoryIndex == 4) {
     renderAppSettingsList(listRect);
   } else {
     GUI.drawList(
