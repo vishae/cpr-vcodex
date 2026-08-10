@@ -29,6 +29,11 @@ class ReaderQuickSettingsActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;
 
+  // Back is acted on when it is released, but the font picker launched from here
+  // exits on the press, leaving its release to land on this screen and close it
+  // too. Only a release whose press we saw counts.
+  bool backPressSeen = false;
+
   static const std::vector<QuickSetting>& settings();
   static std::string getSettingName(int index);
   static std::string getSettingValue(int index);
