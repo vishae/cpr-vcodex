@@ -199,7 +199,10 @@ const std::vector<SettingInfo>& getDeviceOnlySystemSettings() {
 // buildPageSettingsList().
 const std::vector<SettingInfo>& getSyncDayPageSettings() {
   static const std::vector<SettingInfo> settings = {
-      SettingInfo::Action(StrId::STR_SYNC_DAY, SettingAction::SyncDay),
+      // No "Sync day" row: launching the app belongs on the Apps screen, which
+      // already carries it as a shortcut (CGV-016). The hardware-RTC build of
+      // this row survives as "Clock sync now" — that one is an action with no
+      // other route, not a launcher. See buildPageSettingsList().
       SettingInfo::Action(StrId::STR_TIME_ZONE, SettingAction::TimeZone),
       SettingInfo::Toggle(StrId::STR_DISPLAY_DAY, &CrossPointSettings::displayDay),
       SettingInfo::Enum(StrId::STR_CHOOSE_WIFI, &CrossPointSettings::syncDayWifiChoice,
@@ -232,12 +235,8 @@ const std::vector<SettingInfo>& getCoverGridPageSettings() {
   return settings;
 }
 
-const std::vector<SettingInfo>& getDeviceOnlyAppSettings() {
+const std::vector<SettingInfo>& getReadingStatsPageSettings() {
   static const std::vector<SettingInfo> settings = {
-      SettingInfo::Action(StrId::STR_SYNC_DAY, SettingAction::AppPageSyncDay),
-      SettingInfo::Action(StrId::STR_COVER_GRID, SettingAction::AppPageCoverGrid),
-      SettingInfo::Section(StrId::STR_READING_STATS),
-      SettingInfo::Action(StrId::STR_READING_STATS, SettingAction::ReadingStats),
       SettingInfo::Enum(StrId::STR_DAILY_GOAL, &CrossPointSettings::dailyGoalTarget,
                         {StrId::STR_MIN_15, StrId::STR_MIN_30, StrId::STR_MIN_45, StrId::STR_MIN_60}),
       SettingInfo::Enum(
@@ -249,30 +248,46 @@ const std::vector<SettingInfo>& getDeviceOnlyAppSettings() {
       SettingInfo::Action(StrId::STR_RESET_READING_STATS, SettingAction::ResetReadingStats),
       SettingInfo::Action(StrId::STR_EXPORT_READING_STATS, SettingAction::ExportReadingStats),
       SettingInfo::Action(StrId::STR_IMPORT_READING_STATS, SettingAction::ImportReadingStats),
-      SettingInfo::Action(StrId::STR_READING_HEATMAP, SettingAction::ReadingHeatmap),
-      SettingInfo::Action(StrId::STR_READING_PROFILE, SettingAction::ReadingProfile),
-      SettingInfo::Section(StrId::STR_ACHIEVEMENTS),
-      SettingInfo::Action(StrId::STR_ACHIEVEMENTS, SettingAction::Achievements),
+      // Reading stats, Heatmap and Profile are not here: all three are registered
+      // shortcuts and belong on the Apps screen, not in settings (CGV-016).
+  };
+  return settings;
+}
+
+const std::vector<SettingInfo>& getAchievementsPageSettings() {
+  static const std::vector<SettingInfo> settings = {
       SettingInfo::Toggle(StrId::STR_ENABLE_ACHIEVEMENTS, &CrossPointSettings::achievementsEnabled),
       SettingInfo::Toggle(StrId::STR_ACHIEVEMENT_POPUPS, &CrossPointSettings::achievementPopups),
       SettingInfo::Action(StrId::STR_RESET_ACHIEVEMENTS, SettingAction::ResetAchievements),
       SettingInfo::Action(StrId::STR_SYNC_WITH_PREV_STATS, SettingAction::SyncAchievementsFromStats),
-      SettingInfo::Section(StrId::STR_APPS),
-      SettingInfo::Action(StrId::STR_HIGHLIGHTS, SettingAction::Bookmarks),
-      SettingInfo::Action(StrId::STR_FAVORITES, SettingAction::Favorites),
-      SettingInfo::Action(StrId::STR_SCREEN_CLEAN, SettingAction::ScreenClean),
-      SettingInfo::Action(StrId::STR_SLEEP, SettingAction::SleepApp),
-      SettingInfo::Action(StrId::STR_IF_FOUND_RETURN_ME, SettingAction::IfFound),
-      SettingInfo::Section(StrId::STR_FLASHCARDS),
-      SettingInfo::Action(StrId::STR_FLASHCARDS, SettingAction::Flashcards),
-      // Study mode and Session size deliberately absent (CGV-016): both are
-      // already editable inside the app itself (FlashcardSettingsActivity), and
-      // remain in the shared registry for the web UI. This tab was a third copy.
-      SettingInfo::Section(StrId::STR_SHORTCUTS_SECTION),
+  };
+  return settings;
+}
+
+const std::vector<SettingInfo>& getShortcutsPageSettings() {
+  static const std::vector<SettingInfo> settings = {
       SettingInfo::Action(StrId::STR_SHORTCUT_LOCATION, SettingAction::ShortcutLocation),
       SettingInfo::Action(StrId::STR_SHORTCUT_VISIBILITY, SettingAction::ShortcutVisibility),
       SettingInfo::Action(StrId::STR_ORDER_HOME_SHORTCUTS, SettingAction::OrderHomeShortcuts),
       SettingInfo::Action(StrId::STR_ORDER_APPS_SHORTCUTS, SettingAction::OrderAppsShortcuts),
+  };
+  return settings;
+}
+
+// The Apps tab (CGV-016): a list of apps that have settings, nothing else. The
+// launchers that used to sit here — Highlights, Favorites, Flashcards, Screen
+// clean, Sleep, If found, and each app's own self-launcher — are all registered
+// shortcuts, so the Apps screen already carries them; a second route through
+// Settings was what made this tab 47 rows long. Apps with no settings at all
+// (the five bare launchers, and Flashcards now its two settings live in the app
+// itself) no longer appear here.
+const std::vector<SettingInfo>& getDeviceOnlyAppSettings() {
+  static const std::vector<SettingInfo> settings = {
+      SettingInfo::Action(StrId::STR_SYNC_DAY, SettingAction::AppPageSyncDay),
+      SettingInfo::Action(StrId::STR_READING_STATS, SettingAction::AppPageReadingStats),
+      SettingInfo::Action(StrId::STR_ACHIEVEMENTS, SettingAction::AppPageAchievements),
+      SettingInfo::Action(StrId::STR_COVER_GRID, SettingAction::AppPageCoverGrid),
+      SettingInfo::Action(StrId::STR_SHORTCUTS_SECTION, SettingAction::AppPageShortcuts),
   };
   return settings;
 }
@@ -458,6 +473,8 @@ void SettingsActivity::onEnter() {
     // build. Row 0 is the header row here too, so the selection arithmetic and
     // the Confirm/Back handling below stay shared with the tabbed screen.
     buildPageSettingsList();  // also sets currentSettings and settingsCount
+    // Start on the first real setting: the header row is skipped in navigation.
+    selectedSettingIndex = settingsCount > 0 ? 1 : 0;
     requestUpdate();
     return;
   }
@@ -529,10 +546,33 @@ StrId SettingsActivity::appPageTitleId() const {
       return StrId::STR_SYNC_DAY;
     case AppSettingsPage::CoverGrid:
       return StrId::STR_COVER_GRID;
+    case AppSettingsPage::ReadingStats:
+      return StrId::STR_READING_STATS;
+    case AppSettingsPage::Achievements:
+      return StrId::STR_ACHIEVEMENTS;
+    case AppSettingsPage::Shortcuts:
+      return StrId::STR_SHORTCUTS_SECTION;
     case AppSettingsPage::None:
       break;
   }
   return StrId::STR_APPS;
+}
+
+const std::vector<SettingInfo>& SettingsActivity::appPageSource() const {
+  switch (appPage) {
+    case AppSettingsPage::SyncDay:
+      return getSyncDayPageSettings();
+    case AppSettingsPage::ReadingStats:
+      return getReadingStatsPageSettings();
+    case AppSettingsPage::Achievements:
+      return getAchievementsPageSettings();
+    case AppSettingsPage::Shortcuts:
+      return getShortcutsPageSettings();
+    case AppSettingsPage::CoverGrid:
+    case AppSettingsPage::None:
+      break;
+  }
+  return getCoverGridPageSettings();
 }
 
 // Build the row list for one app's page. Sync Day carries the hardware-RTC
@@ -542,23 +582,25 @@ StrId SettingsActivity::appPageTitleId() const {
 // appSettingOverrides is the backing store for those synthesised entries and is
 // reserved up front, since pageSettings holds pointers into it.
 void SettingsActivity::buildPageSettingsList() {
-  const auto& source = appPage == AppSettingsPage::SyncDay ? getSyncDayPageSettings() : getCoverGridPageSettings();
+  const auto& source = appPageSource();
   pageSettings.clear();
   appSettingOverrides.clear();
-  pageSettings.reserve(source.size());
+  pageSettings.reserve(source.size() + 1);
 
   const bool rtcClockActive = appPage == AppSettingsPage::SyncDay && SETTINGS.isHardwareRtcAutoDayClockActive();
   if (rtcClockActive) {
-    // Two overrides replace Sync Day + Display Day entries; reserve so stored pointers stay valid.
+    // Two overrides: the Clock sync now row and the Display day replacement.
+    // Reserve so the pointers stored below stay valid.
     appSettingOverrides.reserve(2);
+    // With the hardware RTC driving the clock there is nothing to fetch over
+    // WiFi, so the Sync day app is replaced by a one-shot clock sync. That
+    // action has no shortcut and no other route, so unlike the launcher it was
+    // substituted for, it stays on this page (CGV-016).
+    appSettingOverrides.push_back(SettingInfo::Action(StrId::STR_CLOCK_SYNC_NOW, SettingAction::ClockSync));
+    pageSettings.push_back(&appSettingOverrides.back());
   }
   for (const auto& setting : source) {
     if (rtcClockActive && setting.nameId == StrId::STR_SYNC_DAY_REMINDER_EVERY) {
-      continue;
-    }
-    if (rtcClockActive && setting.nameId == StrId::STR_SYNC_DAY && setting.type == SettingType::ACTION) {
-      appSettingOverrides.push_back(SettingInfo::Action(StrId::STR_CLOCK_SYNC_NOW, SettingAction::ClockSync));
-      pageSettings.push_back(&appSettingOverrides.back());
       continue;
     }
     if (rtcClockActive && setting.nameId == StrId::STR_DISPLAY_DAY && setting.type == SettingType::TOGGLE) {
@@ -638,6 +680,11 @@ int SettingsActivity::stepSettingSelection(const int direction) const {
   for (int guard = 0; guard < totalSlots; ++guard) {
     candidate = direction > 0 ? ButtonNavigator::nextIndex(candidate, totalSlots)
                               : ButtonNavigator::previousIndex(candidate, totalSlots);
+    // Slot 0 is the header row. On an app page it does nothing at all now that
+    // Back leaves from anywhere, so skip it rather than offer a dead stop.
+    if (candidate == 0 && isAppPage()) {
+      continue;
+    }
     if (candidate == 0 || isSelectableSetting(candidate - 1)) {
       return candidate;
     }
@@ -697,14 +744,15 @@ void SettingsActivity::loop() {
       prevTabLongPressHandled = false;
       return;
     }
-    if (selectedSettingIndex > 0) {
-      selectedSettingIndex = 0;
-      requestUpdate();
-    } else if (isAppPage()) {
-      // Back off an app page returns to the Apps list, which still holds its own
-      // selection — the app row stays highlighted (CGV-016).
+    if (isAppPage()) {
+      // Back leaves the page from any row, rather than stopping at the header
+      // row first: there's no tab to return to, so that stop was a wasted press.
+      // The Apps list keeps its own selection, so the app row stays highlighted.
       SETTINGS.saveToFile();
       finish();
+    } else if (selectedSettingIndex > 0) {
+      selectedSettingIndex = 0;
+      requestUpdate();
     } else {
       SETTINGS.saveToFile();
       onGoHome();
@@ -996,20 +1044,35 @@ void SettingsActivity::toggleCurrentSetting() {
         startActivityForResult(std::make_unique<IfFoundActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::AppPageSyncDay:
-        startActivityForResult(std::make_unique<SettingsActivity>(renderer, mappedInput, AppSettingsPage::SyncDay),
+      case SettingAction::AppPageCoverGrid:
+      case SettingAction::AppPageReadingStats:
+      case SettingAction::AppPageAchievements:
+      case SettingAction::AppPageShortcuts: {
+        AppSettingsPage page = AppSettingsPage::Shortcuts;
+        switch (setting.action) {
+          case SettingAction::AppPageSyncDay:
+            page = AppSettingsPage::SyncDay;
+            break;
+          case SettingAction::AppPageCoverGrid:
+            page = AppSettingsPage::CoverGrid;
+            break;
+          case SettingAction::AppPageReadingStats:
+            page = AppSettingsPage::ReadingStats;
+            break;
+          case SettingAction::AppPageAchievements:
+            page = AppSettingsPage::Achievements;
+            break;
+          default:
+            break;
+        }
+        startActivityForResult(std::make_unique<SettingsActivity>(renderer, mappedInput, page),
                                [this](const ActivityResult&) {
                                  // The page may have changed a setting this list shows a value for.
                                  SETTINGS.saveToFile();
                                  requestUpdate(true);
                                });
         break;
-      case SettingAction::AppPageCoverGrid:
-        startActivityForResult(std::make_unique<SettingsActivity>(renderer, mappedInput, AppSettingsPage::CoverGrid),
-                               [this](const ActivityResult&) {
-                                 SETTINGS.saveToFile();
-                                 requestUpdate(true);
-                               });
-        break;
+      }
       case SettingAction::None:
         // Do nothing
         break;

@@ -56,12 +56,15 @@ enum class SettingAction {
   // payload, and the switch already dispatches by action.
   AppPageSyncDay,
   AppPageCoverGrid,
+  AppPageReadingStats,
+  AppPageAchievements,
+  AppPageShortcuts,
 };
 
 // Which app's settings page a SettingsActivity instance is showing. `None` is the
 // ordinary tabbed settings screen; anything else is a single app's page, opened
 // from the Apps tab (CGV-016).
-enum class AppSettingsPage { None, SyncDay, CoverGrid };
+enum class AppSettingsPage { None, SyncDay, CoverGrid, ReadingStats, Achievements, Shortcuts };
 
 struct SettingInfo {
   StrId nameId;
@@ -212,6 +215,7 @@ class SettingsActivity final : public Activity {
   AppSettingsPage appPage = AppSettingsPage::None;
   bool isAppPage() const { return appPage != AppSettingsPage::None; }
   StrId appPageTitleId() const;
+  const std::vector<SettingInfo>& appPageSource() const;
   void buildPageSettingsList();
 
   static constexpr int categoryCount = 5;
