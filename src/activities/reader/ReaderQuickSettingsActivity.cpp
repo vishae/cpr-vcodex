@@ -177,17 +177,7 @@ void ReaderQuickSettingsActivity::toggleSelectedSetting() {
 }
 
 void ReaderQuickSettingsActivity::loop() {
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    backPressSeen = true;
-  }
-
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    // A release we never saw pressed belongs to the font picker, which closes on
-    // the press — acting on it would close this screen from the same press.
-    if (!backPressSeen) {
-      return;
-    }
-    backPressSeen = false;
     finish();
     return;
   }

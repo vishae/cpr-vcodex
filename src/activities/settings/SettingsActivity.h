@@ -225,13 +225,6 @@ class SettingsActivity final : public Activity {
   // repeat-firing every tick while the button stays held past the threshold).
   bool prevTabLongPressHandled = false;
 
-  // Back is acted on when it is *released*, but child screens (Shortcut
-  // location, Shortcut visibility, …) exit on the press. Without this, the
-  // release that closed the child arrives here and is read as a second Back,
-  // dropping the user a level further than they asked for. Only a release whose
-  // press we actually saw counts.
-  bool backPressSeen = false;
-
   void enterCategory(int categoryIndex);
   bool isSelectableSetting(int settingIndex) const;
   int firstSelectableSettingIndex() const;

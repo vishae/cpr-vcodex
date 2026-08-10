@@ -16,7 +16,11 @@ class MappedInputManager {
   explicit MappedInputManager(HalGPIO& gpio) : gpio(gpio) {}
 
   void update() const { gpio.update(); }
-  void armConfirmReleaseGuard() const;
+  // Called on every activity transition. A screen that closes on a button press
+  // leaves the matching release to land on whatever is revealed behind it, which
+  // then acts on a press its user never aimed at it. Both Confirm and Back are
+  // suppressed until the button is next seen up.
+  void armReleaseGuards() const;
   bool wasPressed(Button button) const;
   bool wasReleased(Button button) const;
   bool isPressed(Button button) const;
@@ -30,6 +34,7 @@ class MappedInputManager {
  private:
   HalGPIO& gpio;
   mutable bool suppressConfirmReleaseUntilButtonUp = false;
+  mutable bool suppressBackReleaseUntilButtonUp = false;
 
   bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
 };

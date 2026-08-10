@@ -1,8 +1,8 @@
 #include "MappedInputManager.h"
 
-#include "CrossPointSettings.h"
-
 #include <string>
+
+#include "CrossPointSettings.h"
 
 namespace {
 using ButtonIndex = uint8_t;
@@ -30,8 +30,7 @@ std::string sanitizeBackLabel(const char* label) {
   std::string text(label);
   bool hadPrefix = false;
 
-  if (text.size() >= 2 && static_cast<unsigned char>(text[0]) == 0xC2 &&
-      static_cast<unsigned char>(text[1]) == 0xAB) {
+  if (text.size() >= 2 && static_cast<unsigned char>(text[0]) == 0xC2 && static_cast<unsigned char>(text[1]) == 0xAB) {
     text.erase(0, 2);
     hadPrefix = true;
   } else if (!text.empty() && static_cast<unsigned char>(text[0]) == 0xAB) {
@@ -109,12 +108,25 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
 
 bool MappedInputManager::wasPressed(const Button button) const { return mapButton(button, &HalGPIO::wasPressed); }
 
-void MappedInputManager::armConfirmReleaseGuard() const { suppressConfirmReleaseUntilButtonUp = true; }
+void MappedInputManager::armReleaseGuards() const {
+  suppressConfirmReleaseUntilButtonUp = true;
+  suppressBackReleaseUntilButtonUp = true;
+}
 
 bool MappedInputManager::wasReleased(const Button button) const {
   if (button == Button::Confirm && suppressConfirmReleaseUntilButtonUp) {
     if (!isPressed(Button::Confirm)) {
       suppressConfirmReleaseUntilButtonUp = false;
+    }
+    return false;
+  }
+  // Back needs the same guard, for the same reason: a screen that exits on the
+  // press hands its release to whatever is revealed behind it. Chained pops make
+  // it worse — cancelling the SD firmware picker closes both the picker and the
+  // update activity, and the release then reached Settings and sent it home.
+  if (button == Button::Back && suppressBackReleaseUntilButtonUp) {
+    if (!isPressed(Button::Back)) {
+      suppressBackReleaseUntilButtonUp = false;
     }
     return false;
   }

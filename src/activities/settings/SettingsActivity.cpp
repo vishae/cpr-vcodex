@@ -720,13 +720,6 @@ void SettingsActivity::showTransientPopup(const char* message, const int progres
 void SettingsActivity::loop() {
   bool hasChangedCategory = false;
 
-  // Record the press so the release below can be attributed to it. A child
-  // screen that exits on the press leaves its release to land here, and acting
-  // on a release we never saw pressed is what made one Back jump two levels.
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    backPressSeen = true;
-  }
-
   // Handle actions with early return
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
     if (selectedSettingIndex == 0 && isAppPage()) {
@@ -757,15 +750,8 @@ void SettingsActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (prevTabLongPressHandled) {
       prevTabLongPressHandled = false;
-      backPressSeen = false;
       return;
     }
-    // The release of somebody else's press — a child screen closing on the
-    // press hands us the release. Not ours to act on.
-    if (!backPressSeen) {
-      return;
-    }
-    backPressSeen = false;
     if (isAppPage()) {
       // Back leaves the page from any row, rather than stopping at the header
       // row first: there's no tab to return to, so that stop was a wasted press.
