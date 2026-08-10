@@ -457,9 +457,7 @@ void SettingsActivity::onEnter() {
     // Page mode (CGV-016): one app's rows, no tab bar and no category lists to
     // build. Row 0 is the header row here too, so the selection arithmetic and
     // the Confirm/Back handling below stay shared with the tabbed screen.
-    buildPageSettingsList();
-    currentSettings = &pageSettings;
-    settingsCount = static_cast<int>(pageSettings.size());
+    buildPageSettingsList();  // also sets currentSettings and settingsCount
     requestUpdate();
     return;
   }
@@ -571,6 +569,17 @@ void SettingsActivity::buildPageSettingsList() {
       continue;
     }
     pageSettings.push_back(&setting);
+  }
+
+  // Point currentSettings and settingsCount at the rebuilt list here rather than
+  // at the call site — toggleCurrentSetting() indexes one by the other, so the
+  // two must not be able to disagree. enterCategory() does the same for the
+  // tabbed lists. The clamp covers a rebuild that shortens the list under a
+  // selection sitting past its new end.
+  currentSettings = &pageSettings;
+  settingsCount = static_cast<int>(pageSettings.size());
+  if (selectedSettingIndex > settingsCount) {
+    selectedSettingIndex = settingsCount;
   }
 }
 
@@ -769,7 +778,16 @@ void SettingsActivity::toggleCurrentSetting() {
       SETTINGS.*(setting.valuePtr) = currentValue + setting.valueRange.step;
     }
   } else if (setting.type == SettingType::ACTION) {
-    auto resultHandler = [this](const ActivityResult&) { SETTINGS.saveToFile(); };
+    auto resultHandler = [this](const ActivityResult&) {
+      SETTINGS.saveToFile();
+      // A page action can change which rows belong on the page it was launched
+      // from — running the clock sync switches Sync Day's rows to their
+      // hardware-RTC forms. The tabbed screen gets this free by rebuilding on
+      // every enterCategory(); a page has no such moment, so rebuild here.
+      if (isAppPage()) {
+        buildPageSettingsList();
+      }
+    };
 
     switch (setting.action) {
       case SettingAction::RemapFrontButtons:
