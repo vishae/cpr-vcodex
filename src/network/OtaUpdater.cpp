@@ -15,8 +15,8 @@
 #include "version.h"
 
 namespace {
-constexpr char firmwareManifestUrl[] = "https://franssjz.github.io/cpr-vcodex/firmware/manifest.json";
-constexpr char latestReleaseUrl[] = "https://api.github.com/repos/franssjz/cpr-vcodex/releases/latest";
+constexpr char firmwareManifestUrl[] = "https://vishae.github.io/cpr-vcodex/firmware/manifest.json";
+constexpr char latestReleaseUrl[] = "https://api.github.com/repos/vishae/cpr-vcodex/releases/latest";
 constexpr char otaCachePath[] = "/.crosspoint/ota-update.bin";
 
 /*
