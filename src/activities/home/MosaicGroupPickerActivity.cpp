@@ -5,6 +5,11 @@
 
 #include <algorithm>
 
+namespace {
+// Matches the grid's own Options hold, so the gesture is one thing to learn.
+constexpr unsigned long kOptionsHoldMs = 700;
+}  // namespace
+
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -40,7 +45,7 @@ void MosaicGroupPickerActivity::render(RenderLock&&) {
     renderList();
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_OPEN), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_OPEN_OPTIONS), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }
@@ -65,6 +70,11 @@ void MosaicGroupPickerActivity::renderGrid() {
 
 void MosaicGroupPickerActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (mappedInput.getHeldTime() >= kOptionsHoldMs) {
+      setResult(ActivityResult{MenuResult{OPTIONS_REQUESTED, 0, 0}});
+      finish();
+      return;
+    }
     if (!groups.empty()) {
       setResult(ActivityResult{KeyboardResult{groups[selectorIndex].name}});
     }

@@ -8,6 +8,7 @@
 #include "MosaicGrid.h"
 #include "MosaicLibraryIndex.h"
 #include "MosaicLibraryScan.h"
+#include "MosaicOptionsActivity.h"
 #include "MosaicSort.h"
 #include "util/ButtonNavigator.h"
 
@@ -126,6 +127,38 @@ class MosaicBrowserActivity final : public Activity {
   void onGroupPickerResult(const ActivityResult& result);
   void applyGroupFilter(const std::string& group);
   void reshowGroupPicker();  // Back from a filtered grid returns here instead of Home
+
+  // In-view Options overlay (CGV-003, CGV-DEC-006): long-press Confirm. One
+  // list activity reused per level rather than a screen each.
+  //
+  // Direction is folded into key selection (Serena, 2026-08-18): re-selecting
+  // the key that is already active flips its direction, selecting a different
+  // one switches to it forwards. That is the column-header idiom, and it costs
+  // no extra row on a device where every row is a button press away.
+  void openOptionsMenu();
+  void onOptionsResult(const ActivityResult& result);
+  void openBookSortMenu();
+  void openGroupSortMenu();
+  void openGroupingMenu();
+  // Row labels for each sub-menu, rebuilt after every live selection.
+  std::vector<std::string> bookSortRows() const;
+  std::vector<std::string> groupSortRows() const;
+  std::vector<std::string> groupingRows() const;
+  // A sort change while the overlay is open: reorder the lists in hand and
+  // nothing else. It must NOT start an activity — the menu that called it is
+  // still on screen, and pushing the picker underneath it makes the two
+  // reopen each other indefinitely.
+  void resortInPlace();
+  // A grouping change, applied once on the way out of the overlay: restore the
+  // unfiltered list, reorder it, then show the picker or the flat grid.
+  void applyGroupingChange();
+  // The overlay can be opened from the group picker as well as the grid; when it
+  // is, closing it has to put the picker back rather than dropping to the grid.
+  bool optionsFromPicker = false;
+  // Grouping changed while the overlay was open. Applied once, on the way out —
+  // relaunching the picker mid-overlay would push a second activity in the same
+  // loop iteration as the menu we are already reopening.
+  bool optionsChangedGrouping = false;
 
  public:
   explicit MosaicBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
