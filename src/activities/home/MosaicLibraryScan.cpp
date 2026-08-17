@@ -7,9 +7,27 @@
 
 namespace MosaicLibraryScan {
 
-std::vector<std::string> scanBookPaths(const std::string& libraryPath, Fingerprint* outFingerprint) {
+namespace {
+
+// Pack FAT's two directory-entry words into one sortable value. Returns 0 when
+// the entry has no create time, which the sort treats as "unknown" rather than
+// as the earliest possible date.
+MosaicLibraryScan::CreatedAt readCreatedAt(FsFile& file) {
+  uint16_t date = 0;
+  uint16_t time = 0;
+  if (!file.getCreateDateTime(&date, &time)) {
+    return 0;
+  }
+  return (static_cast<MosaicLibraryScan::CreatedAt>(date) << 16) | time;
+}
+
+}  // namespace
+
+std::vector<std::string> scanBookPaths(const std::string& libraryPath, Fingerprint* outFingerprint,
+                                       std::vector<CreatedAt>* outCreatedAt) {
   std::vector<std::string> paths;
   if (outFingerprint) *outFingerprint = Fingerprint{};
+  if (outCreatedAt) outCreatedAt->clear();
   std::vector<std::string> stack;
   stack.push_back(libraryPath);
   char nameBuf[512];
@@ -49,6 +67,10 @@ std::vector<std::string> scanBookPaths(const std::string& libraryPath, Fingerpri
             // Size comes from the directory entry already open here — no extra read.
             outFingerprint->fileCount++;
             outFingerprint->totalBytes += file.fileSize64();
+          }
+          if (outCreatedAt) {
+            // Same entry, same reason: the create time is already in hand.
+            outCreatedAt->push_back(readCreatedAt(file));
           }
         }
       }

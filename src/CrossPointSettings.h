@@ -206,6 +206,27 @@ class CrossPointSettings {
     MOSAIC_GROUPING_SERIES = 2,
     MOSAIC_GROUPING_COUNT
   };
+  // Cover-grid default sort (CGV-003). Order matters: these values are persisted
+  // in settings JSON, so new keys are appended rather than inserted — SORT_TITLE
+  // was added last for that reason, not because it ranks last in usefulness.
+  enum MOSAIC_SORT {
+    MOSAIC_SORT_DATE_ADDED = 0,
+    MOSAIC_SORT_AUTHOR = 1,
+    MOSAIC_SORT_SERIES = 2,
+    MOSAIC_SORT_RECENTLY_READ = 3,
+    MOSAIC_SORT_TITLE = 4,
+    MOSAIC_SORT_COUNT
+  };
+  // Group-picker sort (CGV-003). A separate control from the book sort, and a
+  // shorter list, because the picker orders *groups* rather than books: title,
+  // author and series all collapse to "the group's name", and a series has no
+  // single author to sort by. Time keys use the maximum over the group's books.
+  enum MOSAIC_PICKER_SORT {
+    MOSAIC_PICKER_SORT_NAME = 0,
+    MOSAIC_PICKER_SORT_RECENTLY_READ = 1,
+    MOSAIC_PICKER_SORT_DATE_ADDED = 2,
+    MOSAIC_PICKER_SORT_COUNT
+  };
   // How the group picker presents each grouping type (CGV-002 v2). Independent
   // per type: a series has a representative cover to show, an author doesn't —
   // so authors default to the text list and series to the tile grid.
@@ -359,6 +380,18 @@ class CrossPointSettings {
   char libraryFolder[128] = "/books";
   // Cover-grid default grouping (CGV-002).
   uint8_t mosaicDefaultGrouping = MOSAIC_GROUPING_NONE;
+  // Cover-grid default sort (CGV-003). Title is the default: it's the only key
+  // that needs no metadata beyond what every book already has, so a fresh
+  // library sorts sensibly before anything has been indexed or read.
+  uint8_t mosaicDefaultSort = MOSAIC_SORT_TITLE;
+  // Reverse the active sort's natural direction (CGV-003). A single toggle
+  // rather than an ascending/descending pair, because the natural directions
+  // differ per key — "ascending Date Added" would mean oldest-first and read as
+  // a different feature depending on which key was selected.
+  uint8_t mosaicSortReversed = 0;  // uint8_t, not bool — SettingInfo::Toggle binds uint8_t members
+  // Group-picker sort + direction (CGV-003).
+  uint8_t mosaicPickerSort = MOSAIC_PICKER_SORT_NAME;
+  uint8_t mosaicPickerSortReversed = 0;
   // Group-picker presentation, per grouping type (CGV-002 v2).
   uint8_t mosaicAuthorGroupDisplay = MOSAIC_GROUP_DISPLAY_LIST;
   uint8_t mosaicSeriesGroupDisplay = MOSAIC_GROUP_DISPLAY_GRID;

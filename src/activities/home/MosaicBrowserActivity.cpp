@@ -20,6 +20,9 @@
 #include "MosaicIndexPromptActivity.h"
 #include "MosaicLibraryIndex.h"
 #include "MosaicLibraryScan.h"
+#include "MosaicOptionsActivity.h"
+#include "MosaicSort.h"
+#include "ReadingStatsStore.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/settings/MosaicMetadataGenerateActivity.h"
 #include "components/UITheme.h"
@@ -27,6 +30,7 @@
 
 namespace {
 constexpr unsigned long kGenerateIdleMs = 250;  // wait this long after input before indexing a cover
+constexpr unsigned long kOptionsHoldMs = 700;   // hold Confirm this long to open the Options overlay
 constexpr char kCacheDir[] = "/.crosspoint";
 
 std::string fileStem(const std::string& path) {
@@ -68,11 +72,57 @@ void MosaicBrowserActivity::loadBooks() {
 
   // Recursive walk of the library folder (CGV-004), skipping hidden/system
   // folders and the completed-books directory so those never appear in the grid.
-  for (auto& path : MosaicLibraryScan::scanBookPaths(libraryPath, &currentFingerprint)) {
-    books.push_back(GridBook{path, fileStem(path), "", false});
+  std::vector<MosaicLibraryScan::CreatedAt> createdAt;
+  auto paths = MosaicLibraryScan::scanBookPaths(libraryPath, &currentFingerprint, &createdAt);
+  books.reserve(paths.size());
+  for (size_t i = 0; i < paths.size(); i++) {
+    GridBook book{paths[i], fileStem(paths[i]), "", false};
+    // The walk fills createdAt in step with paths; guard anyway rather than
+    // trusting the two to stay in lockstep across future edits.
+    book.createdAt = i < createdAt.size() ? createdAt[i] : 0;
+    books.push_back(std::move(book));
   }
 
-  std::sort(books.begin(), books.end(), [](const GridBook& a, const GridBook& b) { return a.label < b.label; });
+  sortBooks(books);
+}
+
+// Gather the fields an ordering decision needs. Pointers into the book itself —
+// the sort never outlives the list it is sorting.
+MosaicSort::Fields MosaicBrowserActivity::sortFieldsFor(const GridBook& book) const {
+  MosaicSort::Fields fields;
+  fields.title = &book.label;
+  fields.author = &book.author;
+  fields.series = &book.series;
+  fields.path = &book.path;
+  fields.seriesIndex = book.seriesIndex;
+  fields.createdAt = book.createdAt;
+  fields.lastReadAt = book.lastReadAt;
+  return fields;
+}
+
+// Reading recency is looked up per sort rather than held anywhere: it changes
+// whenever a book is read, which the library fingerprint can't see (CGV-003).
+void MosaicBrowserActivity::refreshReadTimes(std::vector<GridBook>& list) const {
+  if (sortKey != CrossPointSettings::MOSAIC_SORT_RECENTLY_READ) {
+    // Only this key reads it, and the lookup is a linear search per book.
+    return;
+  }
+  for (auto& book : list) {
+    // Exact path lookup. A book whose file has moved since it was last read
+    // reads as unread and lands in the trailing bucket rather than disappearing.
+    // The tolerant matcher (findMatchingBookForPath) exists, but it is a fuzzy
+    // search per book and this runs over the whole library on every sort.
+    const ReadingBookStats* stats = READING_STATS.findBook(book.path);
+    book.lastReadAt = stats ? stats->lastReadAt : 0;
+  }
+}
+
+void MosaicBrowserActivity::sortBooks(std::vector<GridBook>& list) const {
+  refreshReadTimes(list);
+  const auto key = static_cast<MosaicSort::Key>(sortKey);
+  std::sort(list.begin(), list.end(), [&](const GridBook& a, const GridBook& b) {
+    return MosaicSort::less(sortFieldsFor(a), sortFieldsFor(b), key, sortReversed != 0);
+  });
 }
 
 int MosaicBrowserActivity::pageStartFor(size_t index) const {
@@ -153,6 +203,10 @@ void MosaicBrowserActivity::onEnter() {
   selectorIndex = 0;
   lastInputMs = millis();
   grouping = SETTINGS.mosaicDefaultGrouping;
+  sortKey = SETTINGS.mosaicDefaultSort;
+  sortReversed = SETTINGS.mosaicSortReversed;
+  pickerSort = SETTINGS.mosaicPickerSort;
+  pickerSortReversed = SETTINGS.mosaicPickerSortReversed;
   checkLibraryFolder();
 }
 
@@ -180,10 +234,20 @@ void MosaicBrowserActivity::finishLoadingBooks() {
   }
   infoDialogVisible = false;
 
-  if (grouping == CrossPointSettings::MOSAIC_GROUPING_NONE) {
-    requestUpdate();
-    return;
-  }
+  // Every sort needs the metadata pass, not just grouping (CGV-003, corrected
+  // 2026-08-18 after Serena caught Title sorting by filename).
+  //
+  // The obvious reading is that only author and series need it. But `label`
+  // starts life as the *filename stem* and is only upgraded to the real title
+  // once metadata loads, so a title sort without the pass orders by filename —
+  // and with Serena's naming scheme those begin with the series index, giving an
+  // order with no visible relationship to the titles being displayed. Date-added
+  // and recently-read escape that for their primary key, but their tie-break
+  // tail is series then title, and same-second batch copies make ties the common
+  // case rather than the rare one.
+  //
+  // So the pass is unconditional. CGV-010's index is what makes that affordable:
+  // on a fresh index this is a load, not a rescan.
   // Persisted index (CGV-010): on a fingerprint match this serves title/author/
   // series straight from disk, skipping the per-book metadata pass entirely.
   const IndexStatus status = checkIndex();
@@ -203,9 +267,18 @@ void MosaicBrowserActivity::finishLoadingBooks() {
   promptIndexUpdate(status);
 }
 
-// Common tail of every path into the grid: cache the full list so Back from a
-// filtered grid can re-show the picker without a rescan, then show the picker.
+// Common tail of every path that loads metadata. Sort here rather than only at
+// scan time: loadBooks() orders the list before a single author or series is
+// known, so an author/series key would otherwise be comparing empty strings and
+// quietly degrade to title order — which is exactly what "All books" did.
+//
+// With grouping off this is the end of the road; there is no picker to show.
 void MosaicBrowserActivity::continueToGroupPicker() {
+  sortBooks(books);
+  if (grouping == CrossPointSettings::MOSAIC_GROUPING_NONE) {
+    requestUpdate();
+    return;
+  }
   allBooksForGrouping = books;
   LOG_DBG("MOSAIC", "Group picker: %u books, free=%u largest=%u", static_cast<unsigned>(books.size()),
           ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
@@ -255,6 +328,10 @@ void MosaicBrowserActivity::applyIndexEntries() {
     book.author = entry.author;
     book.series = entry.series;
     book.seriesIndex = entry.seriesIndex;
+    // The scan already stamped createdAt from the live directory entry, which is
+    // fresher than the index's copy; only fall back to the index when the walk
+    // couldn't read a create time.
+    if (book.createdAt == 0) book.createdAt = entry.createdAt;
   }
 
   // Release the index now its contents live in `books`. Holding it for the rest
@@ -335,7 +412,7 @@ void MosaicBrowserActivity::saveIndex() const {
   index.entries.reserve(books.size());
   for (const auto& book : books) {
     index.entries.push_back(
-        MosaicLibraryIndex::Entry{book.path, book.label, book.author, book.series, book.seriesIndex});
+        MosaicLibraryIndex::Entry{book.path, book.label, book.author, book.series, book.seriesIndex, book.createdAt});
   }
   MosaicLibraryIndex::save(index);
 }
@@ -382,12 +459,58 @@ void MosaicBrowserActivity::launchGroupPicker() {
   const bool bySeries = grouping == CrossPointSettings::MOSAIC_GROUPING_SERIES;
   const std::string fallback = fallbackGroupName();
 
-  // Distinct group names, alphabetical.
+  // Distinct group names, ordered by the picker's own sort (CGV-003). Separate
+  // from the book sort because the picker orders *groups*: title, author and
+  // series all collapse to "the group's name", and a series has no single author
+  // to sort by. So the picker offers Name / Recently read / Date added only.
+  //
+  // Time keys use the MAXIMUM over the group's books — the most recently read
+  // book, the most recently added one — so a series you are partway through
+  // surfaces first, which is the reason to want this at all.
+  std::unordered_map<std::string, MosaicLibraryScan::CreatedAt> newestAdded;
+  std::unordered_map<std::string, uint32_t> newestRead;
+  const bool pickerByRead = pickerSort == CrossPointSettings::MOSAIC_PICKER_SORT_RECENTLY_READ;
+  if (pickerByRead) {
+    // The book sort only refreshes read times for its own key; the picker needs
+    // them whenever it is the one sorting by recency.
+    for (auto& book : books) {
+      const ReadingBookStats* stats = READING_STATS.findBook(book.path);
+      book.lastReadAt = stats ? stats->lastReadAt : 0;
+    }
+  }
+
   std::vector<std::string> keys;
   keys.reserve(books.size());
-  for (const auto& book : books) keys.push_back(groupKeyFor(book));
+  for (const auto& book : books) {
+    const std::string key = groupKeyFor(book);
+    auto& added = newestAdded[key];
+    added = std::max(added, book.createdAt);
+    auto& read = newestRead[key];
+    read = std::max(read, book.lastReadAt);
+    keys.push_back(key);
+  }
   std::sort(keys.begin(), keys.end());
   keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+
+  if (pickerSort != CrossPointSettings::MOSAIC_PICKER_SORT_NAME) {
+    const bool byRead = pickerByRead;
+    const bool reversed = pickerSortReversed != 0;
+    std::sort(keys.begin(), keys.end(), [&](const std::string& a, const std::string& b) {
+      const uint32_t ta = byRead ? newestRead[a] : newestAdded[a];
+      const uint32_t tb = byRead ? newestRead[b] : newestAdded[b];
+      if (ta != tb) {
+        // 0 means no book in the group carries that time at all — unread, or no
+        // create time. Those trail in both directions, as everywhere else.
+        if ((ta == 0) != (tb == 0)) return tb == 0;
+        return reversed ? ta < tb : ta > tb;
+      }
+      // Ties fall back to name so the picker never reorders itself between opens.
+      const int cmp = MosaicSort::compareText(a, b);
+      return reversed ? cmp > 0 : cmp < 0;
+    });
+  } else if (pickerSortReversed != 0) {
+    std::reverse(keys.begin(), keys.end());
+  }
 
   // The fallback bucket is pinned 2nd, right after "All books", instead of
   // sorting alphabetically — so it's always in the same place regardless of
@@ -454,6 +577,14 @@ void MosaicBrowserActivity::onGroupPickerResult(const ActivityResult& result) {
     return;
   }
 
+  // Long-press in the picker asks for the overlay rather than a group.
+  const auto* menu = std::get_if<MenuResult>(&result.data);
+  if (menu && menu->action == MosaicGroupPickerActivity::OPTIONS_REQUESTED) {
+    optionsFromPicker = true;
+    openOptionsMenu();
+    return;
+  }
+
   const auto* keyboard = std::get_if<KeyboardResult>(&result.data);
   if (!keyboard) {
     requestUpdate();
@@ -468,26 +599,240 @@ void MosaicBrowserActivity::onGroupPickerResult(const ActivityResult& result) {
 }
 
 // Filters `books` in place down to the chosen group (empty = "All books", keeps
-// everything); when grouping by series, also re-sorts by seriesIndex so a
-// series reads in order instead of the default alphabetical-by-title sort.
+// everything), then re-applies the active sort within it.
+//
+// CGV-003 replaced the special case that used to live here. This function
+// previously hardcoded a seriesIndex re-sort for By-Series grouping, which was
+// the first place grouping and sorting quietly stopped being separate axes. That
+// ordering is now what MosaicSort::Key::Series produces from the shared chain,
+// so By-Series grouping behaves exactly as before while every other key also
+// works inside a group instead of being ignored.
 void MosaicBrowserActivity::applyGroupFilter(const std::string& group) {
-  if (group.empty()) return;
+  if (group.empty()) {
+    // "All books" filters nothing, but it must still be ordered — `books` is
+    // restored from allBooksForGrouping, which is already sorted, so this is a
+    // cheap re-assert rather than a fix. Kept explicit so a future change to
+    // where the cached copy comes from can't silently leave this path unsorted.
+    sortBooks(books);
+    return;
+  }
 
-  const bool bySeries = grouping == CrossPointSettings::MOSAIC_GROUPING_SERIES;
   books.erase(
       std::remove_if(books.begin(), books.end(), [&](const GridBook& book) { return groupKeyFor(book) != group; }),
       books.end());
 
-  if (bySeries) {
-    std::sort(books.begin(), books.end(), [](const GridBook& a, const GridBook& b) {
-      if (a.seriesIndex != b.seriesIndex) {
-        if (a.seriesIndex < 0) return false;
-        if (b.seriesIndex < 0) return true;
-        return a.seriesIndex < b.seriesIndex;
-      }
-      return a.label < b.label;
-    });
+  sortBooks(books);
+}
+
+
+// ---------------------------------------------------------------------------
+// In-view Options overlay (CGV-003, CGV-DEC-006)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Mark the active choice and show which way it runs, so one list conveys both
+// the current key and its direction — the whole point of folding direction into
+// selection rather than giving it a row of its own.
+std::string optionRow(const char* label, bool active, bool reversed, bool timeAxis) {
+  std::string row = label;
+  if (!active) return row;
+  // The axis differs by key: alphabetical for names, old/new for the time keys,
+  // where "A-Z" would be meaningless.
+  if (timeAxis) {
+    row += reversed ? "  (oldest first)" : "  (newest first)";
+  } else {
+    row += reversed ? "  (Z-A)" : "  (A-Z)";
   }
+  return row;
+}
+
+bool isTimeBookKey(uint8_t key) {
+  return key == CrossPointSettings::MOSAIC_SORT_DATE_ADDED || key == CrossPointSettings::MOSAIC_SORT_RECENTLY_READ;
+}
+
+const char* bookSortLabel(uint8_t key) {
+  switch (key) {
+    case CrossPointSettings::MOSAIC_SORT_DATE_ADDED: return tr(STR_SORT_DATE_ADDED);
+    case CrossPointSettings::MOSAIC_SORT_AUTHOR: return tr(STR_BY_AUTHOR);
+    case CrossPointSettings::MOSAIC_SORT_SERIES: return tr(STR_BY_SERIES);
+    case CrossPointSettings::MOSAIC_SORT_RECENTLY_READ: return tr(STR_SORT_RECENTLY_READ);
+    default: return tr(STR_SORT_TITLE);
+  }
+}
+
+const char* groupSortLabel(uint8_t key) {
+  switch (key) {
+    case CrossPointSettings::MOSAIC_PICKER_SORT_RECENTLY_READ: return tr(STR_SORT_RECENTLY_READ);
+    case CrossPointSettings::MOSAIC_PICKER_SORT_DATE_ADDED: return tr(STR_SORT_DATE_ADDED);
+    default: return tr(STR_SORT_NAME);
+  }
+}
+
+const char* groupingLabel(uint8_t grouping) {
+  switch (grouping) {
+    case CrossPointSettings::MOSAIC_GROUPING_AUTHOR: return tr(STR_BY_AUTHOR);
+    case CrossPointSettings::MOSAIC_GROUPING_SERIES: return tr(STR_BY_SERIES);
+    default: return tr(STR_NONE_OPT);
+  }
+}
+
+}  // namespace
+
+void MosaicBrowserActivity::openOptionsMenu() {
+  std::vector<std::string> rows = {
+      std::string(tr(STR_MOSAIC_SORT)) + ": " + bookSortLabel(sortKey),
+      std::string(tr(STR_MOSAIC_PICKER_SORT)) + ": " + groupSortLabel(pickerSort),
+      std::string(tr(STR_MOSAIC_GROUPING)) + ": " + groupingLabel(grouping),
+  };
+  startActivityForResult(
+      std::make_unique<MosaicOptionsActivity>(renderer, mappedInput, tr(STR_OPTIONS), std::move(rows)),
+      [this](const ActivityResult& result) { onOptionsResult(result); });
+}
+
+void MosaicBrowserActivity::onOptionsResult(const ActivityResult& result) {
+  const auto* menu = std::get_if<MenuResult>(&result.data);
+  if (result.isCancelled || !menu) {
+    // Back out of the top menu: this is where a grouping change is actually
+    // applied, and where the picker is restored if the overlay came from it.
+    if (optionsChangedGrouping) {
+      optionsChangedGrouping = false;
+      optionsFromPicker = false;
+      applyGroupingChange();
+      return;
+    }
+    if (optionsFromPicker) {
+      optionsFromPicker = false;
+      launchGroupPicker();
+      return;
+    }
+    requestUpdate();
+    return;
+  }
+  switch (menu->action) {
+    case 0: openBookSortMenu(); return;
+    case 1: openGroupSortMenu(); return;
+    case 2: openGroupingMenu(); return;
+    default: requestUpdate(); return;
+  }
+}
+
+std::vector<std::string> MosaicBrowserActivity::bookSortRows() const {
+  const bool rev = sortReversed != 0;
+  std::vector<std::string> rows;
+  for (uint8_t k = 0; k < CrossPointSettings::MOSAIC_SORT_COUNT; k++) {
+    rows.push_back(optionRow(bookSortLabel(k), k == sortKey, rev, isTimeBookKey(k)));
+  }
+  return rows;
+}
+
+std::vector<std::string> MosaicBrowserActivity::groupSortRows() const {
+  const bool rev = pickerSortReversed != 0;
+  const uint8_t active = pickerSort;
+  std::vector<std::string> rows;
+  for (uint8_t k = 0; k < CrossPointSettings::MOSAIC_PICKER_SORT_COUNT; k++) {
+    rows.push_back(optionRow(groupSortLabel(k), k == active, rev, k != CrossPointSettings::MOSAIC_PICKER_SORT_NAME));
+  }
+  return rows;
+}
+
+std::vector<std::string> MosaicBrowserActivity::groupingRows() const {
+  std::vector<std::string> rows;
+  for (uint8_t g = 0; g < CrossPointSettings::MOSAIC_GROUPING_COUNT; g++) {
+    rows.push_back(optionRow(groupingLabel(g), g == grouping, false, false));
+  }
+  return rows;
+}
+
+// Every sub-menu is live: selecting applies and stays, so re-selecting the
+// active key visibly flips its direction instead of closing the screen that
+// would have shown the change. Back returns to the top menu.
+void MosaicBrowserActivity::openBookSortMenu() {
+  startActivityForResult(
+      std::make_unique<MosaicOptionsActivity>(renderer, mappedInput, tr(STR_MOSAIC_SORT), bookSortRows(), sortKey,
+                                              [this](size_t index) {
+                                                const auto chosen = static_cast<uint8_t>(index);
+                                                if (chosen == sortKey) {
+                                                  sortReversed = sortReversed ? 0 : 1;
+                                                } else {
+                                                  sortKey = chosen;
+                                                }
+                                                // Session-only (CGV-DEC-006);
+                                                // Settings keeps the default.
+                                                resortInPlace();
+                                                return bookSortRows();
+                                              }),
+      [this](const ActivityResult&) { openOptionsMenu(); });
+}
+
+void MosaicBrowserActivity::openGroupSortMenu() {
+  startActivityForResult(
+      std::make_unique<MosaicOptionsActivity>(renderer, mappedInput, tr(STR_MOSAIC_PICKER_SORT), groupSortRows(),
+                                              pickerSort,
+                                              [this](size_t index) {
+                                                // Session-only (CGV-DEC-006),
+                                                // like every other control here.
+                                                const auto chosen = static_cast<uint8_t>(index);
+                                                if (chosen == pickerSort) {
+                                                  pickerSortReversed = pickerSortReversed ? 0 : 1;
+                                                } else {
+                                                  pickerSort = chosen;
+                                                }
+                                                return groupSortRows();
+                                              }),
+      [this](const ActivityResult&) { openOptionsMenu(); });
+}
+
+void MosaicBrowserActivity::openGroupingMenu() {
+  startActivityForResult(
+      std::make_unique<MosaicOptionsActivity>(renderer, mappedInput, tr(STR_MOSAIC_GROUPING), groupingRows(), grouping,
+                                              [this](size_t index) {
+                                                const auto chosen = static_cast<uint8_t>(index);
+                                                if (chosen != grouping) {
+                                                  grouping = chosen;
+                                                  // Applied on the way out of
+                                                  // the overlay, not here.
+                                                  optionsChangedGrouping = true;
+                                                }
+                                                return groupingRows();
+                                              }),
+      [this](const ActivityResult&) { openOptionsMenu(); });
+}
+
+// Reorder the lists already in hand after a sort change made from the overlay.
+//
+// Deliberately starts no activity. The menu that triggered this is still on
+// screen; pushing the picker underneath it meant the two reopened each other on
+// every selection, which is what happened on the first device test.
+void MosaicBrowserActivity::resortInPlace() {
+  selectorIndex = 0;
+  lastPageStart = -1;
+  sortBooks(books);
+  // The cached unfiltered list has to move with it, or backing out to the
+  // picker and into a group would show the previous order.
+  if (!allBooksForGrouping.empty()) sortBooks(allBooksForGrouping);
+}
+
+// Apply a grouping change on the way out of the overlay, without a rescan: the
+// metadata is already loaded for this open, so the picker rebuilds directly --
+// no index check, no prompt.
+void MosaicBrowserActivity::applyGroupingChange() {
+  selectorIndex = 0;
+  lastPageStart = -1;
+  lastGroupName.clear();
+
+  // A new grouping has to see the whole library, not the group last filtered to.
+  if (!allBooksForGrouping.empty()) books = allBooksForGrouping;
+  sortBooks(books);
+
+  if (grouping == CrossPointSettings::MOSAIC_GROUPING_NONE) {
+    allBooksForGrouping.clear();
+    requestUpdate();
+    return;
+  }
+
+  allBooksForGrouping = books;
+  launchGroupPicker();
 }
 
 // Back from a filtered grid comes here instead of Home — restore the full
@@ -549,6 +894,14 @@ bool MosaicBrowserActivity::skipLoopDelay() {
 void MosaicBrowserActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     lastInputMs = millis();
+    // Long-press Confirm opens the Options overlay (CGV-DEC-006). Read on the
+    // release, like every other Confirm here, so the press that opens the menu
+    // can't also be acted on by whatever the menu reveals.
+    if (mappedInput.getHeldTime() >= kOptionsHoldMs) {
+      optionsFromPicker = false;
+      openOptionsMenu();
+      return;
+    }
     if (!books.empty() && selectorIndex < books.size()) {
       // Selection-time guard (CGV-010): the card can be pulled or edited on a
       // computer between the scan and this press, so confirm the file is still
@@ -675,7 +1028,7 @@ void MosaicBrowserActivity::render(RenderLock&&) {
   // showing — both are "Back", not "Home" (BUG-005).
   const bool backReturnsToPicker = grouping != CrossPointSettings::MOSAIC_GROUPING_NONE && !allBooksForGrouping.empty();
   const char* backLabel = (infoDialogVisible || backReturnsToPicker) ? tr(STR_BACK) : tr(STR_HOME);
-  const auto labels = mappedInput.mapLabels(backLabel, books.empty() ? tr(STR_CHOOSE_ANOTHER) : tr(STR_OPEN),
+  const auto labels = mappedInput.mapLabels(backLabel, books.empty() ? tr(STR_CHOOSE_ANOTHER) : tr(STR_OPEN_OPTIONS),
                                             books.empty() ? "" : tr(STR_DIR_UP), books.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

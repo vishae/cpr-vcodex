@@ -41,6 +41,10 @@ class MosaicMetadataGenerateActivity final : public Activity {
  private:
   State state = State::DONE;
   std::vector<std::string> bookPaths;
+  // FAT create times, one per bookPaths entry, captured by the same walk
+  // (CGV-003). Collected here so a bulk-generated index carries date-added data
+  // like one built by the browser — otherwise every entry it writes says 0.
+  std::vector<MosaicLibraryScan::CreatedAt> bookCreatedAt;
   std::string libraryPath;  // captured at onEnter for display on the DONE screen
   size_t currentIndex = 0;
   int generatedCount = 0;

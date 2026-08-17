@@ -11,7 +11,11 @@ namespace {
 constexpr char kIndexDir[] = "/.crosspoint";
 constexpr char kIndexPath[] = "/.crosspoint/mosaic_index.bin";
 constexpr char kIndexTempPath[] = "/.crosspoint/mosaic_index.bin.tmp";
-constexpr uint8_t kFormatVersion = 1;
+// v2 (CGV-003): Entry gained createdAt. A v1 index is rejected by load() like any
+// other unknown version, so upgrading sends the user through CGV-010's "no index
+// yet" prompt — which runs full bulk cover generation. That one-off cost is the
+// price of the date-added sort and belongs in the release note.
+constexpr uint8_t kFormatVersion = 2;
 // Sanity bound so a corrupt count field can't drive a huge reserve on a device
 // with 320 KB of RAM. Far above any realistic X4 library.
 constexpr uint32_t kMaxEntries = 20000;
@@ -65,6 +69,7 @@ bool load(Index& out) {
     serialization::readString(file, entry.author);
     serialization::readString(file, entry.series);
     serialization::readPod(file, entry.seriesIndex);
+    serialization::readPod(file, entry.createdAt);
     out.entries.push_back(std::move(entry));
   }
   file.close();
@@ -95,6 +100,7 @@ bool save(const Index& index) {
     serialization::writeString(file, entry.author);
     serialization::writeString(file, entry.series);
     serialization::writePod(file, entry.seriesIndex);
+    serialization::writePod(file, entry.createdAt);
   }
   file.flush();
   file.close();

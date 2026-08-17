@@ -25,8 +25,22 @@ struct Fingerprint {
   bool operator!=(const Fingerprint& other) const { return !(*this == other); }
 };
 
+// FAT create-timestamp for a book, packed as (date << 16) | time straight from the
+// directory entry (CGV-003 date-added sort, CGV-005). FAT's date word packs
+// year/month/day in descending significance and its time word hour/minute/second,
+// so the combined value sorts chronologically without converting to an epoch —
+// which is all the sort needs, and avoids a timezone question the device can't
+// answer. 0 means the entry carried no create time; those books belong in the
+// trailing bucket, not at the start of time.
+using CreatedAt = uint32_t;
+
 // When outFingerprint is non-null, it's filled with the fingerprint of the books
 // found (counted and sized as they're encountered).
-std::vector<std::string> scanBookPaths(const std::string& libraryPath, Fingerprint* outFingerprint = nullptr);
+//
+// When outCreatedAt is non-null, it's filled with one create-timestamp per
+// returned path, in the same order. Like the fingerprint's size, this comes from
+// the directory entry the walk already has open, so it costs no extra reads.
+std::vector<std::string> scanBookPaths(const std::string& libraryPath, Fingerprint* outFingerprint = nullptr,
+                                       std::vector<CreatedAt>* outCreatedAt = nullptr);
 
 }  // namespace MosaicLibraryScan

@@ -20,6 +20,12 @@
 // placeholder.
 class MosaicGroupPickerActivity final : public Activity {
  public:
+  // Long-press Confirm here means "open the Options overlay", not "open this
+  // group" — the overlay has to be reachable from the picker as well as from
+  // the grid (Serena, 2026-08-18), since the picker is where you are when you
+  // want to change how the groups are ordered. Signalled as a MenuResult so the
+  // ordinary KeyboardResult path stays exactly as it was.
+  static constexpr int OPTIONS_REQUESTED = -2;
   struct Group {
     std::string name;
     std::string coverBmpPath;  // empty = placeholder tile (always, for authors)

@@ -26,6 +26,16 @@ struct Entry {
   std::string author;
   std::string series;
   float seriesIndex = -1.0f;
+  // Packed FAT create-timestamp for the date-added sort (CGV-003). Captured by
+  // the folder walk from the directory entry it already holds, so it costs
+  // nothing to collect.  0 = unknown; those books sort into a trailing bucket.
+  //
+  // Deliberately NOT joined here by a last-read timestamp. Reading a book
+  // updates ReadingStatsStore but does not change the library fingerprint, so a
+  // recency cached in this index would go stale while the index still passed its
+  // own freshness test — wrong, and self-perpetuating. Recently-read is read live
+  // from ReadingStatsStore at sort time instead.
+  MosaicLibraryScan::CreatedAt createdAt = 0;
 };
 
 struct Index {

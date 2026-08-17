@@ -74,6 +74,11 @@ class HalFile : public Print {
 
   void flush();
   size_t getName(char* name, size_t len);
+  // Passthrough to SdFat's FsFile::getCreateDateTime, in FAT's packed date/time
+  // words. Needed by the Cover Grid's date-added sort (CGV-003/CGV-DEC-005),
+  // which reads it straight from the directory entry the folder walk already
+  // holds open. Additive only — no existing behaviour changes.
+  bool getCreateDateTime(uint16_t* pdate, uint16_t* ptime);
   size_t size();
   size_t fileSize();
   uint64_t fileSize64();

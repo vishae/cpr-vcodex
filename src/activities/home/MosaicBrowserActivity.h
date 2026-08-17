@@ -8,6 +8,8 @@
 #include "MosaicGrid.h"
 #include "MosaicLibraryIndex.h"
 #include "MosaicLibraryScan.h"
+#include "MosaicOptionsActivity.h"
+#include "MosaicSort.h"
 #include "util/ButtonNavigator.h"
 
 // KOReader-style mosaic library browser: a 3x3 grid of book cover thumbnails
@@ -42,6 +44,8 @@ class MosaicBrowserActivity final : public Activity {
     std::string author;         // populated eagerly when grouping is active (CGV-002)
     std::string series;
     float seriesIndex = -1.0f;
+    MosaicLibraryScan::CreatedAt createdAt = 0;  // FAT create time from the scan (CGV-003)
+    uint32_t lastReadAt = 0;  // filled live from ReadingStatsStore at sort time, never cached (CGV-003)
   };
 
   ButtonNavigator buttonNavigator;
@@ -52,6 +56,24 @@ class MosaicBrowserActivity final : public Activity {
                                               // without a rescan (CGV-002)
   std::string libraryPath = "/books";
   uint8_t grouping = 0;  // session copy of SETTINGS.mosaicDefaultGrouping, set in onEnter (CGV-002)
+  uint8_t sortKey = 0;   // session copy of SETTINGS.mosaicDefaultSort, set in onEnter (CGV-003)
+  uint8_t sortReversed = 0;   // session copy of SETTINGS.mosaicSortReversed (CGV-003)
+  // Group-picker sort, session copies for the same reason the book sort has
+  // them: CGV-DEC-006 makes every in-view change session-only, with Settings
+  // keeping the persistent default. Without these the overlay wrote the setting
+  // directly and was the one control in the menu that stuck permanently.
+  uint8_t pickerSort = 0;
+  uint8_t pickerSortReversed = 0;
+
+  // One ordering for all three views (CGV-003): the flat grid, the books inside
+  // a chosen group, and — once the picker gains it — the group tiles themselves.
+  MosaicSort::Fields sortFieldsFor(const GridBook& book) const;
+  void sortBooks(std::vector<GridBook>& list) const;
+  // Stamps lastReadAt on every entry from ReadingStatsStore. Read live rather
+  // than cached in the library index: reading a book updates the stats store but
+  // does not change the library fingerprint, so a cached recency would go stale
+  // behind an index that still passed its own freshness test (CGV-003).
+  void refreshReadTimes(std::vector<GridBook>& list) const;
 
   // Missing/empty-folder info dialog (CGV-005/CGV-011 v2): a small dismissable
   // overlay drawn over the (empty) grid, not a separate full-screen activity.
@@ -111,6 +133,38 @@ class MosaicBrowserActivity final : public Activity {
   void onGroupPickerResult(const ActivityResult& result);
   void applyGroupFilter(const std::string& group);
   void reshowGroupPicker();  // Back from a filtered grid returns here instead of Home
+
+  // In-view Options overlay (CGV-003, CGV-DEC-006): long-press Confirm. One
+  // list activity reused per level rather than a screen each.
+  //
+  // Direction is folded into key selection (Serena, 2026-08-18): re-selecting
+  // the key that is already active flips its direction, selecting a different
+  // one switches to it forwards. That is the column-header idiom, and it costs
+  // no extra row on a device where every row is a button press away.
+  void openOptionsMenu();
+  void onOptionsResult(const ActivityResult& result);
+  void openBookSortMenu();
+  void openGroupSortMenu();
+  void openGroupingMenu();
+  // Row labels for each sub-menu, rebuilt after every live selection.
+  std::vector<std::string> bookSortRows() const;
+  std::vector<std::string> groupSortRows() const;
+  std::vector<std::string> groupingRows() const;
+  // A sort change while the overlay is open: reorder the lists in hand and
+  // nothing else. It must NOT start an activity — the menu that called it is
+  // still on screen, and pushing the picker underneath it makes the two
+  // reopen each other indefinitely.
+  void resortInPlace();
+  // A grouping change, applied once on the way out of the overlay: restore the
+  // unfiltered list, reorder it, then show the picker or the flat grid.
+  void applyGroupingChange();
+  // The overlay can be opened from the group picker as well as the grid; when it
+  // is, closing it has to put the picker back rather than dropping to the grid.
+  bool optionsFromPicker = false;
+  // Grouping changed while the overlay was open. Applied once, on the way out —
+  // relaunching the picker mid-overlay would push a second activity in the same
+  // loop iteration as the menu we are already reopening.
+  bool optionsChangedGrouping = false;
 
  public:
   explicit MosaicBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
