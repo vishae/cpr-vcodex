@@ -56,6 +56,7 @@ class MosaicBrowserActivity final : public Activity {
   std::string libraryPath = "/books";
   uint8_t grouping = 0;  // session copy of SETTINGS.mosaicDefaultGrouping, set in onEnter (CGV-002)
   uint8_t sortKey = 0;   // session copy of SETTINGS.mosaicDefaultSort, set in onEnter (CGV-003)
+  uint8_t sortReversed = 0;   // session copy of SETTINGS.mosaicSortReversed (CGV-003)
 
   // One ordering for all three views (CGV-003): the flat grid, the books inside
   // a chosen group, and — once the picker gains it — the group tiles themselves.

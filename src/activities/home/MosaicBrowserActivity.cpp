@@ -119,7 +119,7 @@ void MosaicBrowserActivity::sortBooks(std::vector<GridBook>& list) const {
   refreshReadTimes(list);
   const auto key = static_cast<MosaicSort::Key>(sortKey);
   std::sort(list.begin(), list.end(), [&](const GridBook& a, const GridBook& b) {
-    return MosaicSort::less(sortFieldsFor(a), sortFieldsFor(b), key);
+    return MosaicSort::less(sortFieldsFor(a), sortFieldsFor(b), key, sortReversed != 0);
   });
 }
 
@@ -202,6 +202,7 @@ void MosaicBrowserActivity::onEnter() {
   lastInputMs = millis();
   grouping = SETTINGS.mosaicDefaultGrouping;
   sortKey = SETTINGS.mosaicDefaultSort;
+  sortReversed = SETTINGS.mosaicSortReversed;
   checkLibraryFolder();
 }
 
@@ -229,10 +230,20 @@ void MosaicBrowserActivity::finishLoadingBooks() {
   }
   infoDialogVisible = false;
 
-  if (grouping == CrossPointSettings::MOSAIC_GROUPING_NONE) {
-    requestUpdate();
-    return;
-  }
+  // Every sort needs the metadata pass, not just grouping (CGV-003, corrected
+  // 2026-08-18 after Serena caught Title sorting by filename).
+  //
+  // The obvious reading is that only author and series need it. But `label`
+  // starts life as the *filename stem* and is only upgraded to the real title
+  // once metadata loads, so a title sort without the pass orders by filename —
+  // and with Serena's naming scheme those begin with the series index, giving an
+  // order with no visible relationship to the titles being displayed. Date-added
+  // and recently-read escape that for their primary key, but their tie-break
+  // tail is series then title, and same-second batch copies make ties the common
+  // case rather than the rare one.
+  //
+  // So the pass is unconditional. CGV-010's index is what makes that affordable:
+  // on a fresh index this is a load, not a rescan.
   // Persisted index (CGV-010): on a fingerprint match this serves title/author/
   // series straight from disk, skipping the per-book metadata pass entirely.
   const IndexStatus status = checkIndex();
@@ -252,9 +263,18 @@ void MosaicBrowserActivity::finishLoadingBooks() {
   promptIndexUpdate(status);
 }
 
-// Common tail of every path into the grid: cache the full list so Back from a
-// filtered grid can re-show the picker without a rescan, then show the picker.
+// Common tail of every path that loads metadata. Sort here rather than only at
+// scan time: loadBooks() orders the list before a single author or series is
+// known, so an author/series key would otherwise be comparing empty strings and
+// quietly degrade to title order — which is exactly what "All books" did.
+//
+// With grouping off this is the end of the road; there is no picker to show.
 void MosaicBrowserActivity::continueToGroupPicker() {
+  sortBooks(books);
+  if (grouping == CrossPointSettings::MOSAIC_GROUPING_NONE) {
+    requestUpdate();
+    return;
+  }
   allBooksForGrouping = books;
   LOG_DBG("MOSAIC", "Group picker: %u books, free=%u largest=%u", static_cast<unsigned>(books.size()),
           ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
@@ -435,12 +455,58 @@ void MosaicBrowserActivity::launchGroupPicker() {
   const bool bySeries = grouping == CrossPointSettings::MOSAIC_GROUPING_SERIES;
   const std::string fallback = fallbackGroupName();
 
-  // Distinct group names, alphabetical.
+  // Distinct group names, ordered by the picker's own sort (CGV-003). Separate
+  // from the book sort because the picker orders *groups*: title, author and
+  // series all collapse to "the group's name", and a series has no single author
+  // to sort by. So the picker offers Name / Recently read / Date added only.
+  //
+  // Time keys use the MAXIMUM over the group's books — the most recently read
+  // book, the most recently added one — so a series you are partway through
+  // surfaces first, which is the reason to want this at all.
+  std::unordered_map<std::string, MosaicLibraryScan::CreatedAt> newestAdded;
+  std::unordered_map<std::string, uint32_t> newestRead;
+  const bool pickerByRead = SETTINGS.mosaicPickerSort == CrossPointSettings::MOSAIC_PICKER_SORT_RECENTLY_READ;
+  if (pickerByRead) {
+    // The book sort only refreshes read times for its own key; the picker needs
+    // them whenever it is the one sorting by recency.
+    for (auto& book : books) {
+      const ReadingBookStats* stats = READING_STATS.findBook(book.path);
+      book.lastReadAt = stats ? stats->lastReadAt : 0;
+    }
+  }
+
   std::vector<std::string> keys;
   keys.reserve(books.size());
-  for (const auto& book : books) keys.push_back(groupKeyFor(book));
+  for (const auto& book : books) {
+    const std::string key = groupKeyFor(book);
+    auto& added = newestAdded[key];
+    added = std::max(added, book.createdAt);
+    auto& read = newestRead[key];
+    read = std::max(read, book.lastReadAt);
+    keys.push_back(key);
+  }
   std::sort(keys.begin(), keys.end());
   keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+
+  if (SETTINGS.mosaicPickerSort != CrossPointSettings::MOSAIC_PICKER_SORT_NAME) {
+    const bool byRead = pickerByRead;
+    const bool reversed = SETTINGS.mosaicPickerSortReversed != 0;
+    std::sort(keys.begin(), keys.end(), [&](const std::string& a, const std::string& b) {
+      const uint32_t ta = byRead ? newestRead[a] : newestAdded[a];
+      const uint32_t tb = byRead ? newestRead[b] : newestAdded[b];
+      if (ta != tb) {
+        // 0 means no book in the group carries that time at all — unread, or no
+        // create time. Those trail in both directions, as everywhere else.
+        if ((ta == 0) != (tb == 0)) return tb == 0;
+        return reversed ? ta < tb : ta > tb;
+      }
+      // Ties fall back to name so the picker never reorders itself between opens.
+      const int cmp = MosaicSort::compareText(a, b);
+      return reversed ? cmp > 0 : cmp < 0;
+    });
+  } else if (SETTINGS.mosaicPickerSortReversed != 0) {
+    std::reverse(keys.begin(), keys.end());
+  }
 
   // The fallback bucket is pinned 2nd, right after "All books", instead of
   // sorting alphabetically — so it's always in the same place regardless of
@@ -530,7 +596,14 @@ void MosaicBrowserActivity::onGroupPickerResult(const ActivityResult& result) {
 // so By-Series grouping behaves exactly as before while every other key also
 // works inside a group instead of being ignored.
 void MosaicBrowserActivity::applyGroupFilter(const std::string& group) {
-  if (group.empty()) return;
+  if (group.empty()) {
+    // "All books" filters nothing, but it must still be ordered — `books` is
+    // restored from allBooksForGrouping, which is already sorted, so this is a
+    // cheap re-assert rather than a fix. Kept explicit so a future change to
+    // where the cached copy comes from can't silently leave this path unsorted.
+    sortBooks(books);
+    return;
+  }
 
   books.erase(
       std::remove_if(books.begin(), books.end(), [&](const GridBook& book) { return groupKeyFor(book) != group; }),

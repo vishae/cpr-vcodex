@@ -51,6 +51,54 @@ bool timeNewerFirst(uint32_t a, uint32_t b, bool& out) {
   return true;
 }
 
+// How a primary comparison resolved. The distinction matters for `reversed`:
+// an ordering decision flips, a presence decision does not.
+enum class Primary { Undecided, ByValue, ByPresence };
+
+// Wrap the decided/undecided helpers so the caller learns which kind it got.
+Primary primaryText(const std::string* a, const std::string* b, bool& out) {
+  const bool aMissing = isMissing(a);
+  const bool bMissing = isMissing(b);
+  if (aMissing != bMissing) {
+    out = !aMissing;
+    return Primary::ByPresence;
+  }
+  const int cmp = compareText(deref(a), deref(b));
+  if (cmp == 0) return Primary::Undecided;
+  out = cmp < 0;
+  return Primary::ByValue;
+}
+
+Primary primaryTime(uint32_t a, uint32_t b, bool& out) {
+  if (a == b) return Primary::Undecided;
+  if ((a == 0) != (b == 0)) {
+    out = b == 0;  // the present one first
+    return Primary::ByPresence;
+  }
+  out = a > b;  // newer first
+  return Primary::ByValue;
+}
+
+Primary primarySeries(const Fields& a, const Fields& b, bool& out) {
+  const Primary byName = primaryText(a.series, b.series, out);
+  if (byName != Primary::Undecided) return byName;
+  const bool aMissing = a.seriesIndex < 0.0f;
+  const bool bMissing = b.seriesIndex < 0.0f;
+  if (aMissing != bMissing) {
+    out = !aMissing;
+    return Primary::ByPresence;
+  }
+  if (a.seriesIndex == b.seriesIndex) return Primary::Undecided;
+  out = a.seriesIndex < b.seriesIndex;
+  return Primary::ByValue;
+}
+
+// Apply `reversed` to a resolved primary, then answer. Presence decisions are
+// returned untouched so missing data keeps trailing in both directions.
+bool resolve(Primary how, bool out, bool reversed) {
+  return how == Primary::ByValue && reversed ? !out : out;
+}
+
 // The tail every chain ends in: series, seriesIndex, title, path. Path is last
 // and is unique, so two distinct books never compare equal — which is what
 // keeps paging stable across renders.
@@ -84,13 +132,15 @@ int compareText(const std::string& a, const std::string& b) {
   return a.size() < b.size() ? -1 : 1;
 }
 
-bool less(const Fields& a, const Fields& b, Key key) {
+bool less(const Fields& a, const Fields& b, Key key, bool reversed) {
   bool out = false;
+  Primary how = Primary::Undecided;
 
   switch (key) {
     case Key::Title:
       // title -> path
-      if (textLess(a.title, b.title, out)) return out;
+      how = primaryText(a.title, b.title, out);
+      if (how != Primary::Undecided) return resolve(how, out, reversed);
       if (textLess(a.path, b.path, out)) return out;
       return false;
 
@@ -100,14 +150,19 @@ bool less(const Fields& a, const Fields& b, Key key) {
       // and falls straight through to the tail — deliberate, per CGV-DOC-002:
       // an option that quietly does the sensible thing beats a menu that
       // changes shape depending on the grouping.
-      if (textLess(a.author, b.author, out)) return out;
+      how = primaryText(a.author, b.author, out);
+      if (how != Primary::Undecided) return resolve(how, out, reversed);
       if (tailLess(a, b, out)) return out;
       return false;
 
     case Key::Series:
       // series -> seriesIndex -> title -> path. Inside a series group this is
-      // exactly the seriesIndex ordering CGV-002 v1 already shipped.
-      if (tailLess(a, b, out)) return out;
+      // exactly the seriesIndex ordering CGV-002 v1 already shipped, and
+      // reversing it reads the series back to front, which is the point.
+      how = primarySeries(a, b, out);
+      if (how != Primary::Undecided) return resolve(how, out, reversed);
+      if (textLess(a.title, b.title, out)) return out;
+      if (textLess(a.path, b.path, out)) return out;
       return false;
 
     case Key::DateAdded:
@@ -115,7 +170,8 @@ bool less(const Fields& a, const Fields& b, Key key) {
       // Falls through series before title so a same-timestamp batch copy keeps
       // each series together and in reading order rather than splitting it
       // alphabetically (Serena, 2026-08-02).
-      if (timeNewerFirst(a.createdAt, b.createdAt, out)) return out;
+      how = primaryTime(a.createdAt, b.createdAt, out);
+      if (how != Primary::Undecided) return resolve(how, out, reversed);
       if (tailLess(a, b, out)) return out;
       return false;
 
@@ -123,7 +179,8 @@ bool less(const Fields& a, const Fields& b, Key key) {
       // read books first, most recent first; then an unread bucket ordered by
       // date added, then the shared tail. Books with no reading activity have
       // lastReadAt == 0, which timeNewerFirst already trails.
-      if (timeNewerFirst(a.lastReadAt, b.lastReadAt, out)) return out;
+      how = primaryTime(a.lastReadAt, b.lastReadAt, out);
+      if (how != Primary::Undecided) return resolve(how, out, reversed);
       if (timeNewerFirst(a.createdAt, b.createdAt, out)) return out;
       if (tailLess(a, b, out)) return out;
       return false;

@@ -28,7 +28,7 @@ void MosaicMetadataGenerateActivity::onEnter() {
   coverH = coverSize.height;
 
   libraryPath = SETTINGS.libraryFolder;
-  bookPaths = MosaicLibraryScan::scanBookPaths(libraryPath, &fingerprint);
+  bookPaths = MosaicLibraryScan::scanBookPaths(libraryPath, &fingerprint, &bookCreatedAt);
   indexEntries.clear();
   currentIndex = 0;
   generatedCount = 0;
@@ -94,9 +94,11 @@ void MosaicMetadataGenerateActivity::indexNext() {
     return;
   }
 
-  const std::string& path = bookPaths[currentIndex++];
+  const size_t scanIndex = currentIndex++;
+  const std::string& path = bookPaths[scanIndex];
   MosaicLibraryIndex::Entry entry;
   entry.path = path;
+  entry.createdAt = scanIndex < bookCreatedAt.size() ? bookCreatedAt[scanIndex] : 0;
 
   if (FsHelpers::hasEpubExtension(path)) {
     Epub epub(path, kCacheDir);

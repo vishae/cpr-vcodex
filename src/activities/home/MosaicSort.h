@@ -41,7 +41,23 @@ struct Fields {
 };
 
 // Strict weak ordering for `key`. True when a sorts before b.
-bool less(const Fields& a, const Fields& b, Key key);
+//
+// `reversed` flips the key's natural direction — and only that. Two things it
+// deliberately does not do:
+//
+//   * It does not move missing values. A book with no author, no series, no
+//     create time or no reading history stays in the trailing bucket in both
+//     directions. Reversing the whole comparator instead would float every
+//     book with incomplete metadata to the top, which is the opposite of what
+//     a trailing bucket is for.
+//   * It does not reverse the tie-break tail. Reverse-by-author gives authors
+//     Z to A, but the books within one author stay in series, volume and title
+//     order rather than running backwards.
+//
+// Natural directions are mixed by design: title, author and series ascending;
+// date added and recently read descending, since "oldest first" and "least
+// recently read first" are rarely the useful default.
+bool less(const Fields& a, const Fields& b, Key key, bool reversed = false);
 
 // Case-insensitive ASCII compare used by every text key, exposed for tests.
 // Returns <0, 0, >0 like strcmp. An EMPTY string is not "less than everything"
