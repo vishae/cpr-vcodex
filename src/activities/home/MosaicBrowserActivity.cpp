@@ -205,6 +205,8 @@ void MosaicBrowserActivity::onEnter() {
   grouping = SETTINGS.mosaicDefaultGrouping;
   sortKey = SETTINGS.mosaicDefaultSort;
   sortReversed = SETTINGS.mosaicSortReversed;
+  pickerSort = SETTINGS.mosaicPickerSort;
+  pickerSortReversed = SETTINGS.mosaicPickerSortReversed;
   checkLibraryFolder();
 }
 
@@ -467,7 +469,7 @@ void MosaicBrowserActivity::launchGroupPicker() {
   // surfaces first, which is the reason to want this at all.
   std::unordered_map<std::string, MosaicLibraryScan::CreatedAt> newestAdded;
   std::unordered_map<std::string, uint32_t> newestRead;
-  const bool pickerByRead = SETTINGS.mosaicPickerSort == CrossPointSettings::MOSAIC_PICKER_SORT_RECENTLY_READ;
+  const bool pickerByRead = pickerSort == CrossPointSettings::MOSAIC_PICKER_SORT_RECENTLY_READ;
   if (pickerByRead) {
     // The book sort only refreshes read times for its own key; the picker needs
     // them whenever it is the one sorting by recency.
@@ -490,9 +492,9 @@ void MosaicBrowserActivity::launchGroupPicker() {
   std::sort(keys.begin(), keys.end());
   keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
 
-  if (SETTINGS.mosaicPickerSort != CrossPointSettings::MOSAIC_PICKER_SORT_NAME) {
+  if (pickerSort != CrossPointSettings::MOSAIC_PICKER_SORT_NAME) {
     const bool byRead = pickerByRead;
-    const bool reversed = SETTINGS.mosaicPickerSortReversed != 0;
+    const bool reversed = pickerSortReversed != 0;
     std::sort(keys.begin(), keys.end(), [&](const std::string& a, const std::string& b) {
       const uint32_t ta = byRead ? newestRead[a] : newestAdded[a];
       const uint32_t tb = byRead ? newestRead[b] : newestAdded[b];
@@ -506,7 +508,7 @@ void MosaicBrowserActivity::launchGroupPicker() {
       const int cmp = MosaicSort::compareText(a, b);
       return reversed ? cmp > 0 : cmp < 0;
     });
-  } else if (SETTINGS.mosaicPickerSortReversed != 0) {
+  } else if (pickerSortReversed != 0) {
     std::reverse(keys.begin(), keys.end());
   }
 
@@ -680,7 +682,7 @@ const char* groupingLabel(uint8_t grouping) {
 void MosaicBrowserActivity::openOptionsMenu() {
   std::vector<std::string> rows = {
       std::string(tr(STR_MOSAIC_SORT)) + ": " + bookSortLabel(sortKey),
-      std::string(tr(STR_MOSAIC_PICKER_SORT)) + ": " + groupSortLabel(SETTINGS.mosaicPickerSort),
+      std::string(tr(STR_MOSAIC_PICKER_SORT)) + ": " + groupSortLabel(pickerSort),
       std::string(tr(STR_MOSAIC_GROUPING)) + ": " + groupingLabel(grouping),
   };
   startActivityForResult(
@@ -725,8 +727,8 @@ std::vector<std::string> MosaicBrowserActivity::bookSortRows() const {
 }
 
 std::vector<std::string> MosaicBrowserActivity::groupSortRows() const {
-  const bool rev = SETTINGS.mosaicPickerSortReversed != 0;
-  const uint8_t active = SETTINGS.mosaicPickerSort;
+  const bool rev = pickerSortReversed != 0;
+  const uint8_t active = pickerSort;
   std::vector<std::string> rows;
   for (uint8_t k = 0; k < CrossPointSettings::MOSAIC_PICKER_SORT_COUNT; k++) {
     rows.push_back(optionRow(groupSortLabel(k), k == active, rev, k != CrossPointSettings::MOSAIC_PICKER_SORT_NAME));
@@ -766,18 +768,15 @@ void MosaicBrowserActivity::openBookSortMenu() {
 void MosaicBrowserActivity::openGroupSortMenu() {
   startActivityForResult(
       std::make_unique<MosaicOptionsActivity>(renderer, mappedInput, tr(STR_MOSAIC_PICKER_SORT), groupSortRows(),
-                                              SETTINGS.mosaicPickerSort,
+                                              pickerSort,
                                               [this](size_t index) {
-                                                // No session copy yet, so this
-                                                // writes the setting directly —
-                                                // a known deviation from
-                                                // CGV-DEC-006, tracked.
+                                                // Session-only (CGV-DEC-006),
+                                                // like every other control here.
                                                 const auto chosen = static_cast<uint8_t>(index);
-                                                if (chosen == SETTINGS.mosaicPickerSort) {
-                                                  SETTINGS.mosaicPickerSortReversed =
-                                                      SETTINGS.mosaicPickerSortReversed ? 0 : 1;
+                                                if (chosen == pickerSort) {
+                                                  pickerSortReversed = pickerSortReversed ? 0 : 1;
                                                 } else {
-                                                  SETTINGS.mosaicPickerSort = chosen;
+                                                  pickerSort = chosen;
                                                 }
                                                 return groupSortRows();
                                               }),

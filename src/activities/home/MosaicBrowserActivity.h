@@ -58,6 +58,12 @@ class MosaicBrowserActivity final : public Activity {
   uint8_t grouping = 0;  // session copy of SETTINGS.mosaicDefaultGrouping, set in onEnter (CGV-002)
   uint8_t sortKey = 0;   // session copy of SETTINGS.mosaicDefaultSort, set in onEnter (CGV-003)
   uint8_t sortReversed = 0;   // session copy of SETTINGS.mosaicSortReversed (CGV-003)
+  // Group-picker sort, session copies for the same reason the book sort has
+  // them: CGV-DEC-006 makes every in-view change session-only, with Settings
+  // keeping the persistent default. Without these the overlay wrote the setting
+  // directly and was the one control in the menu that stuck permanently.
+  uint8_t pickerSort = 0;
+  uint8_t pickerSortReversed = 0;
 
   // One ordering for all three views (CGV-003): the flat grid, the books inside
   // a chosen group, and — once the picker gains it — the group tiles themselves.
