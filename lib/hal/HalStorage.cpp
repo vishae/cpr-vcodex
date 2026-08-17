@@ -147,6 +147,10 @@ bool HalStorage::removeDir(const char* path) { HAL_STORAGE_WRAPPED_CALL(removeDi
 
 void HalFile::flush() { HAL_FILE_WRAPPED_CALL(flush, ); }
 size_t HalFile::getName(char* name, size_t len) { HAL_FILE_WRAPPED_CALL(getName, name, len); }
+// Reads the directory entry from the card, so it takes the mutex like getName.
+bool HalFile::getCreateDateTime(uint16_t* pdate, uint16_t* ptime) {
+  HAL_FILE_WRAPPED_CALL(getCreateDateTime, pdate, ptime);
+}
 size_t HalFile::size() { HAL_FILE_FORWARD_CALL(size, ); }              // already thread-safe, no need to wrap
 size_t HalFile::fileSize() { HAL_FILE_FORWARD_CALL(fileSize, ); }      // already thread-safe, no need to wrap
 uint64_t HalFile::fileSize64() { HAL_FILE_FORWARD_CALL(fileSize, ); }  // already thread-safe, no need to wrap
