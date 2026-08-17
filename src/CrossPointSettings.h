@@ -206,6 +206,17 @@ class CrossPointSettings {
     MOSAIC_GROUPING_SERIES = 2,
     MOSAIC_GROUPING_COUNT
   };
+  // Cover-grid default sort (CGV-003). Order matters: these values are persisted
+  // in settings JSON, so new keys are appended rather than inserted — SORT_TITLE
+  // was added last for that reason, not because it ranks last in usefulness.
+  enum MOSAIC_SORT {
+    MOSAIC_SORT_DATE_ADDED = 0,
+    MOSAIC_SORT_AUTHOR = 1,
+    MOSAIC_SORT_SERIES = 2,
+    MOSAIC_SORT_RECENTLY_READ = 3,
+    MOSAIC_SORT_TITLE = 4,
+    MOSAIC_SORT_COUNT
+  };
   // How the group picker presents each grouping type (CGV-002 v2). Independent
   // per type: a series has a representative cover to show, an author doesn't —
   // so authors default to the text list and series to the tile grid.
@@ -359,6 +370,10 @@ class CrossPointSettings {
   char libraryFolder[128] = "/books";
   // Cover-grid default grouping (CGV-002).
   uint8_t mosaicDefaultGrouping = MOSAIC_GROUPING_NONE;
+  // Cover-grid default sort (CGV-003). Title is the default: it's the only key
+  // that needs no metadata beyond what every book already has, so a fresh
+  // library sorts sensibly before anything has been indexed or read.
+  uint8_t mosaicDefaultSort = MOSAIC_SORT_TITLE;
   // Group-picker presentation, per grouping type (CGV-002 v2).
   uint8_t mosaicAuthorGroupDisplay = MOSAIC_GROUP_DISPLAY_LIST;
   uint8_t mosaicSeriesGroupDisplay = MOSAIC_GROUP_DISPLAY_GRID;

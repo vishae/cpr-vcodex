@@ -20,6 +20,8 @@
 #include "MosaicIndexPromptActivity.h"
 #include "MosaicLibraryIndex.h"
 #include "MosaicLibraryScan.h"
+#include "MosaicSort.h"
+#include "ReadingStatsStore.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/settings/MosaicMetadataGenerateActivity.h"
 #include "components/UITheme.h"
@@ -68,11 +70,57 @@ void MosaicBrowserActivity::loadBooks() {
 
   // Recursive walk of the library folder (CGV-004), skipping hidden/system
   // folders and the completed-books directory so those never appear in the grid.
-  for (auto& path : MosaicLibraryScan::scanBookPaths(libraryPath, &currentFingerprint)) {
-    books.push_back(GridBook{path, fileStem(path), "", false});
+  std::vector<MosaicLibraryScan::CreatedAt> createdAt;
+  auto paths = MosaicLibraryScan::scanBookPaths(libraryPath, &currentFingerprint, &createdAt);
+  books.reserve(paths.size());
+  for (size_t i = 0; i < paths.size(); i++) {
+    GridBook book{paths[i], fileStem(paths[i]), "", false};
+    // The walk fills createdAt in step with paths; guard anyway rather than
+    // trusting the two to stay in lockstep across future edits.
+    book.createdAt = i < createdAt.size() ? createdAt[i] : 0;
+    books.push_back(std::move(book));
   }
 
-  std::sort(books.begin(), books.end(), [](const GridBook& a, const GridBook& b) { return a.label < b.label; });
+  sortBooks(books);
+}
+
+// Gather the fields an ordering decision needs. Pointers into the book itself —
+// the sort never outlives the list it is sorting.
+MosaicSort::Fields MosaicBrowserActivity::sortFieldsFor(const GridBook& book) const {
+  MosaicSort::Fields fields;
+  fields.title = &book.label;
+  fields.author = &book.author;
+  fields.series = &book.series;
+  fields.path = &book.path;
+  fields.seriesIndex = book.seriesIndex;
+  fields.createdAt = book.createdAt;
+  fields.lastReadAt = book.lastReadAt;
+  return fields;
+}
+
+// Reading recency is looked up per sort rather than held anywhere: it changes
+// whenever a book is read, which the library fingerprint can't see (CGV-003).
+void MosaicBrowserActivity::refreshReadTimes(std::vector<GridBook>& list) const {
+  if (sortKey != CrossPointSettings::MOSAIC_SORT_RECENTLY_READ) {
+    // Only this key reads it, and the lookup is a linear search per book.
+    return;
+  }
+  for (auto& book : list) {
+    // Exact path lookup. A book whose file has moved since it was last read
+    // reads as unread and lands in the trailing bucket rather than disappearing.
+    // The tolerant matcher (findMatchingBookForPath) exists, but it is a fuzzy
+    // search per book and this runs over the whole library on every sort.
+    const ReadingBookStats* stats = READING_STATS.findBook(book.path);
+    book.lastReadAt = stats ? stats->lastReadAt : 0;
+  }
+}
+
+void MosaicBrowserActivity::sortBooks(std::vector<GridBook>& list) const {
+  refreshReadTimes(list);
+  const auto key = static_cast<MosaicSort::Key>(sortKey);
+  std::sort(list.begin(), list.end(), [&](const GridBook& a, const GridBook& b) {
+    return MosaicSort::less(sortFieldsFor(a), sortFieldsFor(b), key);
+  });
 }
 
 int MosaicBrowserActivity::pageStartFor(size_t index) const {
@@ -153,6 +201,7 @@ void MosaicBrowserActivity::onEnter() {
   selectorIndex = 0;
   lastInputMs = millis();
   grouping = SETTINGS.mosaicDefaultGrouping;
+  sortKey = SETTINGS.mosaicDefaultSort;
   checkLibraryFolder();
 }
 
@@ -255,6 +304,10 @@ void MosaicBrowserActivity::applyIndexEntries() {
     book.author = entry.author;
     book.series = entry.series;
     book.seriesIndex = entry.seriesIndex;
+    // The scan already stamped createdAt from the live directory entry, which is
+    // fresher than the index's copy; only fall back to the index when the walk
+    // couldn't read a create time.
+    if (book.createdAt == 0) book.createdAt = entry.createdAt;
   }
 
   // Release the index now its contents live in `books`. Holding it for the rest
@@ -335,7 +388,7 @@ void MosaicBrowserActivity::saveIndex() const {
   index.entries.reserve(books.size());
   for (const auto& book : books) {
     index.entries.push_back(
-        MosaicLibraryIndex::Entry{book.path, book.label, book.author, book.series, book.seriesIndex});
+        MosaicLibraryIndex::Entry{book.path, book.label, book.author, book.series, book.seriesIndex, book.createdAt});
   }
   MosaicLibraryIndex::save(index);
 }
@@ -468,26 +521,22 @@ void MosaicBrowserActivity::onGroupPickerResult(const ActivityResult& result) {
 }
 
 // Filters `books` in place down to the chosen group (empty = "All books", keeps
-// everything); when grouping by series, also re-sorts by seriesIndex so a
-// series reads in order instead of the default alphabetical-by-title sort.
+// everything), then re-applies the active sort within it.
+//
+// CGV-003 replaced the special case that used to live here. This function
+// previously hardcoded a seriesIndex re-sort for By-Series grouping, which was
+// the first place grouping and sorting quietly stopped being separate axes. That
+// ordering is now what MosaicSort::Key::Series produces from the shared chain,
+// so By-Series grouping behaves exactly as before while every other key also
+// works inside a group instead of being ignored.
 void MosaicBrowserActivity::applyGroupFilter(const std::string& group) {
   if (group.empty()) return;
 
-  const bool bySeries = grouping == CrossPointSettings::MOSAIC_GROUPING_SERIES;
   books.erase(
       std::remove_if(books.begin(), books.end(), [&](const GridBook& book) { return groupKeyFor(book) != group; }),
       books.end());
 
-  if (bySeries) {
-    std::sort(books.begin(), books.end(), [](const GridBook& a, const GridBook& b) {
-      if (a.seriesIndex != b.seriesIndex) {
-        if (a.seriesIndex < 0) return false;
-        if (b.seriesIndex < 0) return true;
-        return a.seriesIndex < b.seriesIndex;
-      }
-      return a.label < b.label;
-    });
-  }
+  sortBooks(books);
 }
 
 // Back from a filtered grid comes here instead of Home — restore the full

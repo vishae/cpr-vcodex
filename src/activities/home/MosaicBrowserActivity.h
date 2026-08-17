@@ -8,6 +8,7 @@
 #include "MosaicGrid.h"
 #include "MosaicLibraryIndex.h"
 #include "MosaicLibraryScan.h"
+#include "MosaicSort.h"
 #include "util/ButtonNavigator.h"
 
 // KOReader-style mosaic library browser: a 3x3 grid of book cover thumbnails
@@ -42,6 +43,8 @@ class MosaicBrowserActivity final : public Activity {
     std::string author;         // populated eagerly when grouping is active (CGV-002)
     std::string series;
     float seriesIndex = -1.0f;
+    MosaicLibraryScan::CreatedAt createdAt = 0;  // FAT create time from the scan (CGV-003)
+    uint32_t lastReadAt = 0;  // filled live from ReadingStatsStore at sort time, never cached (CGV-003)
   };
 
   ButtonNavigator buttonNavigator;
@@ -52,6 +55,17 @@ class MosaicBrowserActivity final : public Activity {
                                               // without a rescan (CGV-002)
   std::string libraryPath = "/books";
   uint8_t grouping = 0;  // session copy of SETTINGS.mosaicDefaultGrouping, set in onEnter (CGV-002)
+  uint8_t sortKey = 0;   // session copy of SETTINGS.mosaicDefaultSort, set in onEnter (CGV-003)
+
+  // One ordering for all three views (CGV-003): the flat grid, the books inside
+  // a chosen group, and — once the picker gains it — the group tiles themselves.
+  MosaicSort::Fields sortFieldsFor(const GridBook& book) const;
+  void sortBooks(std::vector<GridBook>& list) const;
+  // Stamps lastReadAt on every entry from ReadingStatsStore. Read live rather
+  // than cached in the library index: reading a book updates the stats store but
+  // does not change the library fingerprint, so a cached recency would go stale
+  // behind an index that still passed its own freshness test (CGV-003).
+  void refreshReadTimes(std::vector<GridBook>& list) const;
 
   // Missing/empty-folder info dialog (CGV-005/CGV-011 v2): a small dismissable
   // overlay drawn over the (empty) grid, not a separate full-screen activity.
