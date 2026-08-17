@@ -266,9 +266,18 @@ bool OtaUpdater::isUpdateNewer() const {
 
   const bool currentPreRelease = currentVersion.isRc || currentVersion.isDev;
   const bool latestPreRelease = latest.isRc || latest.isDev;
-  if (currentVersion.isDev && !latestPreRelease) {
-    return true;
-  }
+
+  // CGV-013: upstream returned true here whenever the current build was a dev
+  // one and the candidate was not a pre-release, WITHOUT comparing the version
+  // numbers. That assumes dev builds are throwaway snapshots behind the
+  // published release. On this fork the relationship is inverted -- dev builds
+  // are cut from master ahead of the releases -- so it offered, and would have
+  // installed, a downgrade over unreleased work.
+  //
+  // The shortcut is also redundant. The comparison below already covers what it
+  // was for: a dev build on the same version numbers as a release falls through
+  // the numeric loop to the pre-release check and is still offered the stable
+  // build, while a dev build that is numerically ahead is correctly declined.
 
   for (int index = 0; index < 4; ++index) {
     if (latest.parts[index] != currentVersion.parts[index]) {
